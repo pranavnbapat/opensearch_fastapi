@@ -1,0 +1,13 @@
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/pranavnbapat/opensearch_fastapi:latest
+    container_name: opensearch_fastapi
+    env_file:
+      - .env
+    ports:
+      - "10000:10000"
+    volumes:
+      - ./models_cache:/root/.cache/huggingface/transformers

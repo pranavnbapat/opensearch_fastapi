@@ -1,0 +1,12 @@
+### Test Root
+GET http://127.0.0.1:8000/
+Accept: application/json
+
+### Test OpenSearch API
+POST http://127.0.0.1:8000/search
+Content-Type: application/json
+
+{
+  "search_term": "machine learning",
+  "model": "mpnet"
+}
