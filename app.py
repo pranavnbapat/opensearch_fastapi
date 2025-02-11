@@ -1,3 +1,5 @@
+# app.py
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
@@ -21,7 +23,7 @@ class SearchRequest(BaseModel):
     search_term: str
     model: str
 
-@app.post("/search", response_model=Dict[str, Any])
+@app.post("/search")
 async def search_endpoint(request: SearchRequest):
     query = request.search_term.strip()
     selected_model = request.model
@@ -32,11 +34,12 @@ async def search_endpoint(request: SearchRequest):
     model, index_name = select_model(selected_model)
     query_vector = generate_vector(model, query)
 
-    # OpenSearch Query
+    # Hybrid Query (k-NN + BM25)
     search_query = {
         "query": {
             "bool": {
                 "should": [
+                    # ✅ Vector Search
                     {
                         "knn": {
                             "vector_embedding": {
@@ -45,97 +48,44 @@ async def search_endpoint(request: SearchRequest):
                             }
                         }
                     },
-                    {
-                        "bool": {
-                            "should": [
-                                # Exact Match (Boosted)
-                                {"term": {"title": {"value": query, "boost": 5}}},
-                                {"term": {"projectAcronym": {"value": query, "boost": 4}}},
-                                {"term": {"projectName.raw": {"value": query, "boost": 3}}},
-                                {"term": {"keywords.raw": {"value": query, "boost": 3}}},
-                                {"term": {"topics.raw": {"value": query, "boost": 2}}},
-                                {"term": {"subtopics.raw": {"value": query, "boost": 2}}},
-                                {"term": {"object_name": {"value": query, "boost": 2}}},
-
-                                # Full-Text Match with Fuzziness (Handles Typos)
-                                {"match": {"title": {"query": query, "fuzziness": "AUTO"}}},
-                                {"match": {"summary": {"query": query, "fuzziness": "AUTO"}}},
-                                {"match": {"content_pages": {"query": query, "fuzziness": "AUTO"}}},
-                                {"match": {"projectName": {"query": query, "fuzziness": "AUTO"}}},
-
-                                # N-Gram Matching (Autocomplete & Partial Words)
-                                {"match": {"title.ngram": {"query": query}}},
-                                {"match": {"summary.ngram": {"query": query}}},
-                                {"match": {"content_pages.ngram": {"query": query}}},
-                                {"match": {"projectName.ngram": {"query": query}}},
-                                {"match": {"topics.ngram": {"query": query}}},
-                                {"match": {"subtopics.ngram": {"query": query}}},
-
-                                # Wildcard (Prefix Match)
-                                {"wildcard": {"title.raw": {"value": f"{query.lower()}*"}}},
-                                {"wildcard": {"summary.raw": {"value": f"{query.lower()}*"}}},
-
-                                # Keyword Exact Match for Filters
-                                {"term": {"fileTypeCategories": {"value": query}}},
-                                {"term": {"fileType": {"value": query}}},
-                                {"term": {"locations": {"value": query}}},
-                                {"term": {"languages": {"value": query}}},
-                            ],
-                            "minimum_should_match": 1  # Ensure at least one match type works
-                        }
-                    }
-                ]
+                    # ✅ BM25 Search (Keyword Filtering)
+                    {"match": {"keywords.raw": {"query": query, "boost": 5}}},
+                    {"match": {"projectAcronym": {"query": query, "boost": 4}}},
+                    {"match": {"locations": {"query": query, "boost": 3}}},
+                    {"match": {"languages": {"query": query, "boost": 2}}},
+                    {"match": {"title": {"query": query, "fuzziness": "AUTO"}}},
+                    {"match": {"summary": {"query": query, "fuzziness": "AUTO"}}},
+                    {"match": {"content.content_pages": {"query": query, "fuzziness": "AUTO"}}}
+                ],
+                "minimum_should_match": 1
             }
-        },
-        "highlight": {
-            "fields": {
-                "title": {},
-                "summary": {},
-                "content_pages": {},
-                "projectName": {},
-                "topics": {},
-                "subtopics": {}
-            },
-            "pre_tags": ["<mark>"],
-            "post_tags": ["</mark>"]
-        },
-        "sort": [
-            {"_score": "desc"},  # Sort by highest relevance
-            # {"startDate": "desc"}  # Then sort by latest start date
-        ]
+        }
     }
 
-    # Execute search
     response = search_opensearch(index_name, search_query)
 
-    # Process Results
-    results = []
+    # Extract raw scores
     scores = [hit["_score"] for hit in response["hits"]["hits"]]
-
-    # Min-Max Normalisation
     min_score = min(scores) if scores else 0
     max_score = max(scores) if scores else 1  # Avoid division by zero
 
-
-
+    results = []
     for hit in response["hits"]["hits"]:
-        highlighted_title = hit.get("highlight", {}).get("title", [hit["_source"]["title"]])[0]
-        highlighted_summary = hit.get("highlight", {}).get("summary", [hit["_source"].get("summary", "N/A")])[0]
         raw_score = hit["_score"]
 
-        # Normalise the score
+        # Normalize the score
         if max_score != min_score:
-            normalised_score = (raw_score - min_score) / (max_score - min_score)
+            normalized_score = (raw_score - min_score) / (max_score - min_score)
         else:
-            normalised_score = 1.0  # All scores are the same
+            normalized_score = 1.0  # All scores are the same, assign 1.0
 
         results.append({
-            "title": highlighted_title,
-            "acronym": hit["_source"].get("projectAcronym", "N/A"),
-            "summary": highlighted_summary,
+            "title": hit["_source"]["title"],
+            "summary": hit["_source"].get("summary", "N/A"),
             "url": hit["_source"].get("URL", "N/A"),
             "raw_score": round(raw_score, 4),
-            "normalised_score": round(normalised_score, 4)
+            "normalized_score": round(normalized_score, 4)  # 🔹 Added normalized score
         })
 
     return {"query": query, "results": results}
+
