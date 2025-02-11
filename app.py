@@ -2,7 +2,6 @@
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any
 from starlette.middleware.cors import CORSMiddleware
 
 from models.embedding import select_model, generate_vector
@@ -10,11 +9,18 @@ from services.opensearch_service import search_opensearch
 
 app = FastAPI(title="OpenSearch API", version="1.0")
 
+origins = [
+    "http://127.0.0.1:8000",
+    "https://api.opensearch.nexavion.com",
+    "https://backend-admin.dev.farmbook.ugent.be",
+    "https://backend-admin.prd.farmbook.ugent.be",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -39,7 +45,7 @@ async def search_endpoint(request: SearchRequest):
         "query": {
             "bool": {
                 "should": [
-                    # ✅ Vector Search
+                    # Vector Search
                     {
                         "knn": {
                             "vector_embedding": {
@@ -48,11 +54,12 @@ async def search_endpoint(request: SearchRequest):
                             }
                         }
                     },
-                    # ✅ BM25 Search (Keyword Filtering)
+                    # BM25 Search (Keyword Filtering)
                     {"match": {"keywords.raw": {"query": query, "boost": 5}}},
                     {"match": {"projectAcronym": {"query": query, "boost": 4}}},
                     {"match": {"locations": {"query": query, "boost": 3}}},
                     {"match": {"languages": {"query": query, "boost": 2}}},
+
                     {"match": {"title": {"query": query, "fuzziness": "AUTO"}}},
                     {"match": {"summary": {"query": query, "fuzziness": "AUTO"}}},
                     {"match": {"content.content_pages": {"query": query, "fuzziness": "AUTO"}}}

@@ -1,4 +1,5 @@
 # models/embedding.py
+
 from functools import lru_cache
 from sentence_transformers import SentenceTransformer
 import os
@@ -9,30 +10,26 @@ import os
 def get_model(name: str):
     return SentenceTransformer(name)
 
+def select_model(selected_model: str):
+    model_mapping = {
+        "minilm": ("MODEL_MINILM", "INDEX_NAME_MINILM"),
+        "mpnet": ("MODEL_MPNET", "INDEX_NAME_MPNET"),
+        "mxbai": ("MODEL_MXBAI", "INDEX_NAME_MXBAI"),
+        "sentence_t5": ("MODEL_SENTENCE_T5", "INDEX_NAME_SENTENCE_T5"),
+        "multilingual_e5": ("MODEL_MULTILINGUAL_E5", "INDEX_NAME_MULTILINGUAL_E5"),
+    }
 
-# Define available models & corresponding index names
-MODEL_CONFIG = {
-    "mpnet": {"name": os.getenv("MODEL_MPNET", "sentence-transformers/all-mpnet-base-v2"),
-              "index": os.getenv("INDEX_NAME_MPNET", "mpnet_index")},
-    "minilm": {"name": os.getenv("MODEL_MINILM", "sentence-transformers/all-MiniLM-L6-v2"),
-               "index": os.getenv("INDEX_NAME_MINILM", "minilm_index")},
-    "mxbai": {"name": os.getenv("MODEL_MXBAI", "mixedbread-ai/mxbai-embed-large-v1"),
-              "index": os.getenv("INDEX_NAME_MXBAI", "mxbai_index")},
-    "sentence_t5": {"name": os.getenv("MODEL_T5", "sentence-transformers/sentence-t5-base"),
-                    "index": os.getenv("INDEX_NAME_T5", "sentence_t5_index")},
-    "multilingual_e5": {"name": os.getenv("MODEL_E5", "intfloat/multilingual-e5-large"),
-                        "index": os.getenv("INDEX_NAME_E5", "multilingual_e5_index")},
-}
+    if selected_model in model_mapping:
+        model_env, index_env = model_mapping[selected_model]
+        model = get_model(os.getenv(model_env, "default_model"))
+        index_name = os.getenv(index_env, "default_index")
 
+        if index_name == "default_index":
+            raise ValueError(f"❌ Missing index name for model '{selected_model}'. Check your environment variables.")
 
-def select_model(model_name: str):
-    if model_name not in MODEL_CONFIG:
-        raise ValueError(f"Invalid model: {model_name}. Choose from {list(MODEL_CONFIG.keys())}")
+        return model, index_name
 
-    model = get_model(MODEL_CONFIG[model_name]["name"])
-    index_name = MODEL_CONFIG[model_name]["index"]
-
-    return model, index_name
+    raise ValueError("❌ Invalid model selected")
 
 
 def generate_vector(model, query: str):

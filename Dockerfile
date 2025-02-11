@@ -18,12 +18,15 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Preload all models separately to cache them effectively
-RUN python -c "from sentence_transformers import SentenceTransformer; \
-    SentenceTransformer('${MODEL_MPNET}'); \
-    SentenceTransformer('${MODEL_MINILM}'); \
-    SentenceTransformer('${MODEL_MXBAI}'); \
-    SentenceTransformer('${MODEL_SENTENCE_T5}'); \
-    SentenceTransformer('${MODEL_MULTILINGUAL_E5}')"
+# Ensure cache is cleared and models are reloaded
+RUN rm -rf /root/.cache/huggingface/transformers && \
+    python -c "from sentence_transformers import SentenceTransformer; \
+        SentenceTransformer('${MODEL_MPNET}'); \
+        SentenceTransformer('${MODEL_MINILM}'); \
+        SentenceTransformer('${MODEL_MXBAI}'); \
+        SentenceTransformer('${MODEL_SENTENCE_T5}'); \
+        SentenceTransformer('${MODEL_MULTILINGUAL_E5}')"
+
 
 # Copy the rest of the project files
 COPY . .

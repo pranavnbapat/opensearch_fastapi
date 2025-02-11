@@ -25,7 +25,7 @@ def main():
     print("Pushing to remote...")
     run_command("git push origin main")
 
-    print("✅ Changes pushed successfully!")
+    print("Changes pushed successfully!")
 
 if __name__ == "__main__":
     main()
