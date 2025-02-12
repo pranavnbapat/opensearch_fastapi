@@ -16,7 +16,7 @@ def select_model(selected_model: str):
         "mpnet": ("MODEL_MPNET", "INDEX_NAME_MPNET"),
         "mxbai": ("MODEL_MXBAI", "INDEX_NAME_MXBAI"),
         "sentence_t5": ("MODEL_SENTENCE_T5", "INDEX_NAME_SENTENCE_T5"),
-        "multilingual_e5": ("MODEL_MULTILINGUAL_E5", "INDEX_NAME_MULTILINGUAL_E5"),
+        "multilingual_e5": ("MODEL_MULTILINGUAL_E5", "INDEX_NAME_MULTILINGUAL_E5")
     }
 
     if selected_model in model_mapping:

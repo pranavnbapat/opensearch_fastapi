@@ -1,4 +1,6 @@
 # services/opensearch_service.py
+
+import json
 import os
 from opensearchpy import OpenSearch, RequestsHttpConnection
 from dotenv import load_dotenv
@@ -27,7 +29,11 @@ client = OpenSearch(
 
 def search_opensearch(index_name: str, query_body: dict):
     try:
+        # print(f"\n🚀 Querying OpenSearch at: {index_name}")
+        # print(json.dumps(query_body, indent=2))  # Print formatted query
+
         response = client.search(index=index_name, body=query_body)
         return response
     except Exception as e:
         raise RuntimeError(f"OpenSearch query failed: {e}")
+

@@ -47,6 +47,8 @@ async def search_endpoint(request: SearchRequest):
         raise HTTPException(status_code=400, detail="No search term provided")
 
     model, index_name = select_model(selected_model)
+
+    # print(f"\n🔍 Selected Index for Model {selected_model}: {index_name}")
     query_vector = generate_vector(model, query)
 
     # Hybrid Query (k-NN + BM25)
@@ -85,7 +87,7 @@ async def search_endpoint(request: SearchRequest):
                 "content.content_pages": {}
             }
         },
-        "size": 5000,  # Increase size to fetch everything
+        "size": 10,  # Increase size to fetch everything
         "sort": [{"_score": "desc"}]
     }
 
@@ -93,7 +95,7 @@ async def search_endpoint(request: SearchRequest):
     # print("\n--- OpenSearch Query Sent ---")
     # print(json.dumps(search_query, indent=4))
     # print(f"Searching in Index: {index_name}")
-
+    # print(f"🔍 Searching in index: {index_name}")
     response = search_opensearch(index_name, search_query)
 
     all_results = response["hits"]["hits"]
