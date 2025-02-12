@@ -80,19 +80,33 @@ async def search_endpoint(request: SearchRequest):
     for hit in response["hits"]["hits"]:
         raw_score = hit["_score"]
 
-        # Normalize the score
+        # Normalise the score
         if max_score != min_score:
-            normalized_score = (raw_score - min_score) / (max_score - min_score)
+            normalised_score = (raw_score - min_score) / (max_score - min_score)
         else:
-            normalized_score = 1.0  # All scores are the same, assign 1.0
+            normalised_score = 1.0  # All scores are the same
 
+        # Extract highlighted text if available
+        highlighted_title = hit.get("highlight", {}).get("title", [hit["_source"]["title"]])[0]
+        highlighted_summary = hit.get("highlight", {}).get("summary", [hit["_source"].get("summary", "N/A")])[0]
+        highlighted_content = \
+        hit.get("highlight", {}).get("content.content_pages", [hit["_source"].get("content.content_pages", "N/A")])[0]
         results.append({
-            "title": hit["_source"]["title"],
-            "summary": hit["_source"].get("summary", "N/A"),
+            "title": highlighted_title,
+            "acronym": hit["_source"].get("projectAcronym", "N/A"),
+            "summary": highlighted_summary,
+            "highlighted_content": highlighted_content,
             "url": hit["_source"].get("URL", "N/A"),
             "raw_score": round(raw_score, 4),
-            "normalized_score": round(normalized_score, 4)  # 🔹 Added normalized score
+            "normalised_score": round(normalised_score, 4)
         })
 
-    return {"query": query, "results": results}
+    # Ensure sorting by raw score in descending order (redundant but safe)
+    results.sort(key=lambda x: x["raw_score"], reverse=True)
+
+    return {
+        "query": query,
+        "total_results": response["hits"]["total"]["value"],
+        "results": results
+    }
 
