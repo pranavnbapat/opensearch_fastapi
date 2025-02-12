@@ -25,11 +25,11 @@ def select_model(selected_model: str):
         index_name = os.getenv(index_env, "default_index")
 
         if index_name == "default_index":
-            raise ValueError(f"❌ Missing index name for model '{selected_model}'. Check your environment variables.")
+            raise ValueError(f"Missing index name for model '{selected_model}'. Check your environment variables.")
 
         return model, index_name
 
-    raise ValueError("❌ Invalid model selected")
+    raise ValueError("Invalid model selected")
 
 
 def generate_vector(model, query: str):

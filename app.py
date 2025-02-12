@@ -1,7 +1,10 @@
 # app.py
 
+import json
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import List, Optional
 from starlette.middleware.cors import CORSMiddleware
 
 from models.embedding import select_model, generate_vector
@@ -28,6 +31,12 @@ app.add_middleware(
 class SearchRequest(BaseModel):
     search_term: str
     model: str
+    topics: Optional[List[str]] = None
+    subtopics: Optional[List[str]] = None
+    languages: Optional[List[str]] = None
+    fileType: Optional[str] = None
+    projectAcronym: Optional[str] = None
+    locations: Optional[List[str]] = None
 
 @app.post("/search")
 async def search_endpoint(request: SearchRequest):
@@ -66,47 +75,64 @@ async def search_endpoint(request: SearchRequest):
                 ],
                 "minimum_should_match": 1
             }
-        }
+        },
+        "highlight": {
+            "pre_tags": ["<mark>"],
+            "post_tags": ["</mark>"],
+            "fields": {
+                "title": {},
+                "summary": {},
+                "content.content_pages": {}
+            }
+        },
+        "size": 5000,  # Increase size to fetch everything
+        "sort": [{"_score": "desc"}]
     }
+
+    # Print the OpenSearch query (for debugging)
+    # print("\n--- OpenSearch Query Sent ---")
+    # print(json.dumps(search_query, indent=4))
+    # print(f"Searching in Index: {index_name}")
 
     response = search_opensearch(index_name, search_query)
 
+    all_results = response["hits"]["hits"]
+
     # Extract raw scores
-    scores = [hit["_score"] for hit in response["hits"]["hits"]]
+    scores = [hit["_score"] for hit in all_results]
     min_score = min(scores) if scores else 0
     max_score = max(scores) if scores else 1  # Avoid division by zero
 
     results = []
-    for hit in response["hits"]["hits"]:
+    for hit in all_results:
         raw_score = hit["_score"]
 
-        # Normalise the score
-        if max_score != min_score:
-            normalised_score = (raw_score - min_score) / (max_score - min_score)
-        else:
-            normalised_score = 1.0  # All scores are the same
+        normalised_score = (raw_score - min_score) / (max_score - min_score) if max_score != min_score else 1.0
 
         # Extract highlighted text if available
         highlighted_title = hit.get("highlight", {}).get("title", [hit["_source"]["title"]])[0]
         highlighted_summary = hit.get("highlight", {}).get("summary", [hit["_source"].get("summary", "N/A")])[0]
-        highlighted_content = \
-        hit.get("highlight", {}).get("content.content_pages", [hit["_source"].get("content.content_pages", "N/A")])[0]
+        highlighted_content = hit.get("highlight", {}).get("content.content_pages",
+                                                           [hit["_source"].get("content.content_pages", "N/A")])[0]
+
         results.append({
             "title": highlighted_title,
             "acronym": hit["_source"].get("projectAcronym", "N/A"),
             "summary": highlighted_summary,
             "highlighted_content": highlighted_content,
             "url": hit["_source"].get("URL", "N/A"),
+            "topics": hit["_source"].get("topics", []) if isinstance(hit["_source"].get("topics"), list) else [],
+            "subtopics": hit["_source"].get("subtopics", []) if isinstance(hit["_source"].get("subtopics"), list) else [],
+            "languages": hit["_source"].get("languages", []) if isinstance(hit["_source"].get("languages"), list) else [],
+            "fileType": hit["_source"].get("fileType", "N/A"),
+            "locations": hit["_source"].get("locations", []) if isinstance(hit["_source"].get("locations"), list) else [],
             "raw_score": round(raw_score, 4),
             "normalised_score": round(normalised_score, 4)
         })
 
-    # Ensure sorting by raw score in descending order (redundant but safe)
-    results.sort(key=lambda x: x["raw_score"], reverse=True)
-
     return {
         "query": query,
-        "total_results": response["hits"]["total"]["value"],
+        "total_results": len(results),
         "results": results
     }
 
