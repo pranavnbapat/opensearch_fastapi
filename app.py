@@ -53,27 +53,43 @@ async def search_endpoint(request: SearchRequest):
 
     # Hybrid Query (k-NN + BM25)
     search_query = {
+        "track_total_hits": 100,
         "query": {
             "bool": {
                 "should": [
                     # Vector Search
                     {
-                        "knn": {
-                            "vector_embedding": {
-                                "vector": query_vector,
-                                "k": 10
+                        "script_score": {
+                            "query": {"match_all": {}},  # Ensure we retrieve all docs before ranking
+                            "script": {
+                                "source": """
+                                    return cosineSimilarity(params.query_vector, doc['vector_embedding']) + 1.0;
+                                """,
+                                "params": {
+                                    "query_vector": query_vector
+                                }
                             }
                         }
                     },
+                    # {
+                    #     "knn": {
+                    #         "vector_embedding": {
+                    #             "vector": query_vector,
+                    #             "k": 10,
+                    #         }
+                    #     }
+                    # },
                     # BM25 Search (Keyword Filtering)
+                    # {"match": {"title": {"query": query, "boost": 8}}},
+                    # {"match": {"summary": {"query": query, "boost": 6}}},
                     {"match": {"keywords.raw": {"query": query, "boost": 5}}},
                     {"match": {"projectAcronym": {"query": query, "boost": 4}}},
                     {"match": {"locations": {"query": query, "boost": 3}}},
-                    {"match": {"languages": {"query": query, "boost": 2}}},
+                    # {"match": {"languages": {"query": query, "boost": 2}}},
 
-                    {"match": {"title": {"query": query, "fuzziness": "AUTO"}}},
-                    {"match": {"summary": {"query": query, "fuzziness": "AUTO"}}},
-                    {"match": {"content.content_pages": {"query": query, "fuzziness": "AUTO"}}}
+                    # {"match": {"title": {"query": query, "fuzziness": "AUTO"}}},
+                    # {"match": {"summary": {"query": query, "fuzziness": "AUTO"}}},
+                    # {"match": {"content.content_pages": {"query": query, "fuzziness": "AUTO"}}}
                 ],
                 "minimum_should_match": 1
             }
