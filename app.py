@@ -87,7 +87,7 @@ async def search_endpoint(request: SearchRequest):
                 "content.content_pages": {}
             }
         },
-        "size": 10,  # Increase size to fetch everything
+        "size": 100,
         "sort": [{"_score": "desc"}]
     }
 
