@@ -1,16 +1,21 @@
 # app.py
 
-import json
+# import json
+import datetime
+import time
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Union
 from starlette.middleware.cors import CORSMiddleware
 
 from models.embedding import select_model, generate_vector
-from services.opensearch_service import search_opensearch
+from services.opensearch_service import search_opensearch, client
 
 app = FastAPI(title="OpenSearch API", version="1.0")
+
+# Pagination settings
+PAGE_SIZE = 10  # Number of results per page
 
 origins = [
     "http://127.0.0.1:8000",
@@ -37,30 +42,40 @@ class SearchRequest(BaseModel):
     fileType: Optional[str] = None
     projectAcronym: Optional[str] = None
     locations: Optional[List[str]] = None
+    page: Optional[int] = 1  # Default to page 1
 
 @app.post("/search")
 async def search_endpoint(request: SearchRequest):
+    start_time = time.time()
+
     query = request.search_term.strip()
     selected_model = request.model
+
+    page_number = max(request.page, 1)  # Ensure page number is always 1 or higher
 
     if not query:
         raise HTTPException(status_code=400, detail="No search term provided")
 
     model, index_name = select_model(selected_model)
-
-    # print(f"\n🔍 Selected Index for Model {selected_model}: {index_name}")
     query_vector = generate_vector(model, query)
+
+    # Calculate pagination offset
+    from_offset = (page_number - 1) * PAGE_SIZE
 
     # Hybrid Query (k-NN + BM25)
     search_query = {
-        "track_total_hits": 100,
+        "track_total_hits": True,
+        "size": PAGE_SIZE,
+        "from": from_offset,
+        "sort": [{"_score": "desc"}],
         "query": {
             "bool": {
                 "should": [
                     # Vector Search
                     {
                         "script_score": {
-                            "query": {"match_all": {}},  # Ensure we retrieve all docs before ranking
+                            # "query": {"match_all": {}},  # Ensure we retrieve all docs before ranking
+                            "query": {"exists": {"field": "vector_embedding"}},
                             "script": {
                                 "source": """
                                     return cosineSimilarity(params.query_vector, doc['vector_embedding']) + 1.0;
@@ -71,25 +86,14 @@ async def search_endpoint(request: SearchRequest):
                             }
                         }
                     },
-                    # {
-                    #     "knn": {
-                    #         "vector_embedding": {
-                    #             "vector": query_vector,
-                    #             "k": 10,
-                    #         }
-                    #     }
-                    # },
-                    # BM25 Search (Keyword Filtering)
-                    # {"match": {"title": {"query": query, "boost": 8}}},
-                    # {"match": {"summary": {"query": query, "boost": 6}}},
-                    {"match": {"keywords.raw": {"query": query, "boost": 5}}},
-                    {"match": {"projectAcronym": {"query": query, "boost": 4}}},
-                    {"match": {"locations": {"query": query, "boost": 3}}},
-                    # {"match": {"languages": {"query": query, "boost": 2}}},
 
-                    # {"match": {"title": {"query": query, "fuzziness": "AUTO"}}},
-                    # {"match": {"summary": {"query": query, "fuzziness": "AUTO"}}},
-                    # {"match": {"content.content_pages": {"query": query, "fuzziness": "AUTO"}}}
+                    # BM25 Search (Keyword Filtering)
+                    {"term": {"keywords.raw": {"value": query, "boost": 6}}},  # Exact match
+                    {"match": {"keywords": {"query": query, "boost": 5}}},  # Full-text search
+                    {"term": {"projectAcronym.raw": {"value": query, "boost": 4}}},  # Exact match
+                    {"match": {"projectAcronym": {"query": query, "boost": 3}}},  # Full-text search
+                    {"term": {"locations.raw": {"value": query, "boost": 3}}},  # Exact match
+                    {"match": {"locations": {"query": query, "boost": 2}}},  # Full-text search
                 ],
                 "minimum_should_match": 1
             }
@@ -99,20 +103,38 @@ async def search_endpoint(request: SearchRequest):
             "post_tags": ["</mark>"],
             "fields": {
                 "title": {},
-                "summary": {},
-                "content.content_pages": {}
+                "summary": {}
             }
-        },
-        "size": 100,
-        "sort": [{"_score": "desc"}]
+        }
     }
 
-    # Print the OpenSearch query (for debugging)
-    # print("\n--- OpenSearch Query Sent ---")
-    # print(json.dumps(search_query, indent=4))
-    # print(f"Searching in Index: {index_name}")
-    # print(f"🔍 Searching in index: {index_name}")
     response = search_opensearch(index_name, search_query)
+
+    total_results = response["hits"]["total"]["value"]
+    total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE  # Calculate total pages
+    response_time = round((time.time() - start_time) * 1000, 2)  # Convert to ms
+
+    # Log Search Request to OpenSearch
+    log_entry = {
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "search_term": query,
+        "model": selected_model,
+        "filters": {
+            "topics": request.topics,
+            "subtopics": request.subtopics,
+            "languages": request.languages,
+            "fileType": request.fileType,
+            "projectAcronym": request.projectAcronym,
+            "locations": request.locations
+        },
+        "total_results": total_results,
+        "response_time_ms": response_time
+    }
+
+    try:
+        client.index(index="search_logs", body=log_entry)
+    except Exception as e:
+        print(f"Error logging search query: {e}")
 
     all_results = response["hits"]["hits"]
 
@@ -130,20 +152,21 @@ async def search_endpoint(request: SearchRequest):
         # Extract highlighted text if available
         highlighted_title = hit.get("highlight", {}).get("title", [hit["_source"]["title"]])[0]
         highlighted_summary = hit.get("highlight", {}).get("summary", [hit["_source"].get("summary", "N/A")])[0]
-        highlighted_content = hit.get("highlight", {}).get("content.content_pages",
-                                                           [hit["_source"].get("content.content_pages", "N/A")])[0]
 
         results.append({
-            "title": highlighted_title,
-            "acronym": hit["_source"].get("projectAcronym", "N/A"),
-            "summary": highlighted_summary,
-            "highlighted_content": highlighted_content,
+            "title": hit["_source"].get("title_display", hit["_source"].get("title", "Untitled")),
+            "summary": hit["_source"].get("summary_display", hit["_source"].get("summary", "No summary available")),
+            "acronym": hit["_source"].get("projectAcronym_display", hit["_source"].get("projectAcronym", "N/A")),
+            "projectName": hit["_source"].get("projectName_display", hit["_source"].get("projectName", "N/A")),
+            "keywords": hit["_source"].get("keywords_display", hit["_source"].get("keywords", [])),
+            "locations": hit["_source"].get("locations_display", hit["_source"].get("locations", [])),
+            "topics": hit["_source"].get("topics_display", hit["_source"].get("topics", [])),
+            "subtopics": hit["_source"].get("subtopics_display", hit["_source"].get("subtopics", [])),
+            "languages": hit["_source"].get("languages_display", hit["_source"].get("languages", [])),
+            "fileType": hit["_source"].get("fileType_display", hit["_source"].get("fileType", "N/A")),
+            "dateCreated": hit["_source"].get("dateCreated", "N/A"),
+            "creator_name": hit["_source"].get("creator_name", "N/A"),
             "url": hit["_source"].get("URL", "N/A"),
-            "topics": hit["_source"].get("topics", []) if isinstance(hit["_source"].get("topics"), list) else [],
-            "subtopics": hit["_source"].get("subtopics", []) if isinstance(hit["_source"].get("subtopics"), list) else [],
-            "languages": hit["_source"].get("languages", []) if isinstance(hit["_source"].get("languages"), list) else [],
-            "fileType": hit["_source"].get("fileType", "N/A"),
-            "locations": hit["_source"].get("locations", []) if isinstance(hit["_source"].get("locations"), list) else [],
             "raw_score": round(raw_score, 4),
             "normalised_score": round(normalised_score, 4)
         })
@@ -151,6 +174,8 @@ async def search_endpoint(request: SearchRequest):
     return {
         "query": query,
         "total_results": len(results),
-        "results": results
+        "results": results,
+        "total_pages": total_pages,
+        "current_page": page_number,
     }
 
