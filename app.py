@@ -1,6 +1,6 @@
 # app.py
 
-# import json
+import json
 import datetime
 import time
 
@@ -39,7 +39,7 @@ class SearchRequest(BaseModel):
     topics: Optional[List[str]] = None
     subtopics: Optional[List[str]] = None
     languages: Optional[List[str]] = None
-    fileType: Optional[str] = None
+    fileType: Optional[List[str]] = None
     projectAcronym: Optional[str] = None
     locations: Optional[List[str]] = None
     page: Optional[int] = 1  # Default to page 1
@@ -62,50 +62,69 @@ async def search_endpoint(request: SearchRequest):
     # Calculate pagination offset
     from_offset = (page_number - 1) * PAGE_SIZE
 
+    # Base bool query
+    bool_query = {
+        "must": [],
+        "should": [
+            # Vector Search
+            {
+                "script_score": {
+                    "query": {"exists": {"field": "vector_embedding"}},
+                    "script": {
+                        "source": """
+                            return cosineSimilarity(params.query_vector, doc['vector_embedding']) + 1.0;
+                        """,
+                        "params": {
+                            "query_vector": query_vector
+                        }
+                    }
+                }
+            },
+
+            # BM25 Search (Keyword Filtering)
+            {"term": {"keywords.raw": {"value": query, "boost": 6}}},  # Exact match
+            {"match": {"keywords": {"query": query, "boost": 5}}},  # Full-text search
+            {"term": {"projectAcronym.raw": {"value": query, "boost": 4}}},  # Exact match
+            {"match": {"projectAcronym": {"query": query, "boost": 3}}},  # Full-text search
+            {"term": {"locations.raw": {"value": query, "boost": 3}}},  # Exact match
+            {"match": {"locations": {"query": query, "boost": 2}}},  # Full-text search
+        ],
+        "minimum_should_match": 1,
+    }
+
+    # Convert all filters to lowercase to match OpenSearch indexing
+    def lowercase_list(values):
+        return [v.lower() for v in values] if values else []
+
+    # Add filters (AND conditions)
+    filter_conditions = []
+
+    if request.topics:
+        filter_conditions.append({"terms": {"topics": lowercase_list(request.topics)}})
+
+    if request.subtopics:
+        filter_conditions.append({"terms": {"subtopics": lowercase_list(request.subtopics)}})
+
+    if request.languages:
+        filter_conditions.append({"terms": {"languages": lowercase_list(request.languages)}})
+
+    if request.fileType:
+        filter_conditions.append({"terms": {"fileType": lowercase_list(request.fileType)}})
+
+    if request.locations:
+        filter_conditions.append({"terms": {"locations": lowercase_list(request.locations)}})
+
+    # Apply filters only if they exist
+    if filter_conditions:
+        bool_query.setdefault("filter", []).extend(filter_conditions)
+
     # Hybrid Query (k-NN + BM25)
     search_query = {
         "track_total_hits": True,
         "size": PAGE_SIZE,
         "from": from_offset,
         "sort": [{"_score": "desc"}],
-        "query": {
-            "bool": {
-                "should": [
-                    # Vector Search
-                    {
-                        "script_score": {
-                            # "query": {"match_all": {}},  # Ensure we retrieve all docs before ranking
-                            "query": {"exists": {"field": "vector_embedding"}},
-                            "script": {
-                                "source": """
-                                    return cosineSimilarity(params.query_vector, doc['vector_embedding']) + 1.0;
-                                """,
-                                "params": {
-                                    "query_vector": query_vector
-                                }
-                            }
-                        }
-                    },
-
-                    # BM25 Search (Keyword Filtering)
-                    {"term": {"keywords.raw": {"value": query, "boost": 6}}},  # Exact match
-                    {"match": {"keywords": {"query": query, "boost": 5}}},  # Full-text search
-                    {"term": {"projectAcronym.raw": {"value": query, "boost": 4}}},  # Exact match
-                    {"match": {"projectAcronym": {"query": query, "boost": 3}}},  # Full-text search
-                    {"term": {"locations.raw": {"value": query, "boost": 3}}},  # Exact match
-                    {"match": {"locations": {"query": query, "boost": 2}}},  # Full-text search
-                ],
-                "minimum_should_match": 1
-            }
-        },
-        "highlight": {
-            "pre_tags": ["<mark>"],
-            "post_tags": ["</mark>"],
-            "fields": {
-                "title": {},
-                "summary": {}
-            }
-        }
+        "query": {"bool": bool_query},
     }
 
     response = search_opensearch(index_name, search_query)
@@ -148,10 +167,6 @@ async def search_endpoint(request: SearchRequest):
         raw_score = hit["_score"]
 
         normalised_score = (raw_score - min_score) / (max_score - min_score) if max_score != min_score else 1.0
-
-        # Extract highlighted text if available
-        highlighted_title = hit.get("highlight", {}).get("title", [hit["_source"]["title"]])[0]
-        highlighted_summary = hit.get("highlight", {}).get("summary", [hit["_source"].get("summary", "N/A")])[0]
 
         results.append({
             "title": hit["_source"].get("title_display", hit["_source"].get("title", "Untitled")),
