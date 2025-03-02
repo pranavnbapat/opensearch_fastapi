@@ -1,16 +1,17 @@
 # app.py
 
-import json
+# import json
 import datetime
 import time
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional, Union
+from typing import List, Optional
 from starlette.middleware.cors import CORSMiddleware
 
 from models.embedding import select_model, generate_vector
 from services.opensearch_service import search_opensearch, client
+from services.language_detect import detect_language, translate_text_with_backoff
 
 app = FastAPI(title="OpenSearch API", version="1.0")
 
@@ -55,6 +56,13 @@ async def search_endpoint(request: SearchRequest):
 
     if not query:
         raise HTTPException(status_code=400, detail="No search term provided")
+
+    # Detect language
+    detected_lang = detect_language(query)
+
+    # If not English, translate to English
+    if detected_lang != "en":
+        query = translate_text_with_backoff(query, "en")
 
     model, index_name = select_model(selected_model)
     query_vector = generate_vector(model, query)

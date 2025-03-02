@@ -17,6 +17,9 @@ COPY requirements.txt .
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Download FastText language model
+RUN wget -O /app/lid.176.bin https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
+
 # Preload all models separately to cache them effectively
 # Ensure cache is cleared and models are reloaded
 RUN rm -rf /root/.cache/huggingface/transformers && \
