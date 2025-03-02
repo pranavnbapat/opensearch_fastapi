@@ -1,5 +1,6 @@
 # services/opensearch_service.py
 
+import datetime
 import os
 
 from dotenv import load_dotenv
@@ -82,12 +83,12 @@ def search_opensearch(index_name: str, query_body: dict):
 #                     }
 #                 }
 #             },
-#             {"term": {"keywords.raw": {"value": query_text, "boost": 6}}},  # Exact match
-#             {"match": {"keywords": {"query": query_text, "boost": 5}}},  # Full-text search
-#             {"term": {"projectAcronym.raw": {"value": query_text, "boost": 4}}},  # Exact match
-#             {"match": {"projectAcronym": {"query": query_text, "boost": 3}}},  # Full-text search
-#             {"term": {"locations.raw": {"value": query_text, "boost": 3}}},  # Exact match
-#             {"match": {"locations": {"query": query_text, "boost": 2}}},  # Full-text search
+#             {"term": {"keywords.raw": {"value": query_text, "boost": 6}}},
+#             {"match": {"keywords": {"query": query_text, "boost": 5}}},
+#             {"term": {"projectAcronym.raw": {"value": query_text, "boost": 4}}},
+#             {"match": {"projectAcronym": {"query": query_text, "boost": 3}}},
+#             {"term": {"locations.raw": {"value": query_text, "boost": 3}}},
+#             {"match": {"locations": {"query": query_text, "boost": 2}}},
 #         ],
 #         "minimum_should_match": 1,
 #     }
@@ -107,7 +108,44 @@ def search_opensearch(index_name: str, query_body: dict):
 #     return client.search(index=index_name, body=search_query)
 #
 #
-# def search_with_fallback(request, threshold=10):
+# def extract_results(response):
+#     """
+#     Extract relevant information from OpenSearch response.
+#     """
+#     all_results = response["hits"]["hits"]
+#
+#     # Extract raw scores
+#     scores = [hit["_score"] for hit in all_results]
+#     min_score = min(scores) if scores else 0
+#     max_score = max(scores) if scores else 1  # Avoid division by zero
+#
+#     results = []
+#     for hit in all_results:
+#         raw_score = hit["_score"]
+#         normalised_score = (raw_score - min_score) / (max_score - min_score) if max_score != min_score else 1.0
+#
+#         results.append({
+#             "title": hit["_source"].get("title_display", hit["_source"].get("title", "Untitled")),
+#             "summary": hit["_source"].get("summary_display", hit["_source"].get("summary", "No summary available")),
+#             "acronym": hit["_source"].get("projectAcronym_display", hit["_source"].get("projectAcronym", "N/A")),
+#             "projectName": hit["_source"].get("projectName_display", hit["_source"].get("projectName", "N/A")),
+#             "keywords": hit["_source"].get("keywords_display", hit["_source"].get("keywords", [])),
+#             "locations": hit["_source"].get("locations_display", hit["_source"].get("locations", [])),
+#             "topics": hit["_source"].get("topics_display", hit["_source"].get("topics", [])),
+#             "subtopics": hit["_source"].get("subtopics_display", hit["_source"].get("subtopics", [])),
+#             "languages": hit["_source"].get("languages_display", hit["_source"].get("languages", [])),
+#             "fileType": hit["_source"].get("fileType_display", hit["_source"].get("fileType", "N/A")),
+#             "dateCreated": hit["_source"].get("dateCreated", "N/A"),
+#             "creator_name": hit["_source"].get("creator_name", "N/A"),
+#             "url": hit["_source"].get("URL", "N/A"),
+#             "raw_score": round(raw_score, 4),
+#             "normalised_score": round(normalised_score, 4)
+#         })
+#
+#     return results
+#
+#
+# def search_with_fallback(request, threshold=50):
 #     """
 #     Perform search using the original query first. If results are below threshold, translate and retry in English.
 #     """
@@ -119,29 +157,52 @@ def search_opensearch(index_name: str, query_body: dict):
 #     model, index_name = select_model(selected_model)
 #     query_vector = generate_vector(model, query)
 #
-#     # Get filter conditions
+#     # Get filter conditions (this will be used for both original and translated queries)
 #     filter_conditions = apply_filters(request)
 #
-#     # Perform search in the original language
+#     # ✅ Step 1: Perform search in the original language
 #     response_original = perform_search(index_name, query_vector, query, filter_conditions)
 #     total_results_original = response_original["hits"]["total"]["value"]
 #
+#     # ✅ Step 2: Log search query **ONLY ONCE** before translation
+#     log_entry = {
+#         "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+#         "search_term": query,
+#         "translated_query": None,  # No translation yet
+#         "translated_search_performed": False,
+#         "model": selected_model,
+#         "filters": request.dict(exclude_none=True),
+#         "total_results": total_results_original
+#     }
+#
+#     try:
+#         client.index(index="search_logs", body=log_entry)
+#     except Exception as e:
+#         print(f"Error logging search query: {e}")
+#
 #     translated_results = []
 #     translated_query = None
+#     response_translated = None  # ✅ Ensure it's always defined
 #
-#     # If results are too low, translate and search again
+#     # ✅ Step 3: If results are too low, translate and search in English
 #     if detected_lang != "en" and total_results_original < threshold:
 #         translated_query = translate_text_with_backoff(query, "en")
 #         query_vector_translated = generate_vector(model, translated_query)
+#
+#         # ✅ Step 4: Apply the same filters to the translated query
 #         response_translated = perform_search(index_name, query_vector_translated, translated_query, filter_conditions)
 #         translated_results = response_translated["hits"]["hits"]
 #
-#     # Merge results: Prioritize original search results
-#     final_results = response_original["hits"]["hits"] + translated_results
+#     # ✅ Step 5: Extract and merge results (prioritizing native language results first)
+#     original_results = extract_results(response_original)
+#     translated_results = extract_results(response_translated) if response_translated else []
+#
+#     final_results = original_results + translated_results
 #
 #     return {
 #         "results": final_results,
 #         "translated_search_performed": detected_lang != "en" and total_results_original < threshold,
 #         "original_query": query,
-#         "translated_query": translated_query if translated_query else None
+#         "translated_query": translated_query
 #     }
+#

@@ -1,0 +1,29 @@
+# Ignore the virtual environment
+.venv/
+
+# Ignore PyCharm and other IDE files
+.idea/
+
+# Ignore environment files (contains secrets)
+.env
+
+# Ignore Python cache files
+__pycache__/
+*.pyo
+*.pyd
+
+# Ignore logs and compiled files
+*.log
+*.bin
+
+# Ignore Docker-related files (if not needed inside the container)
+.dockerignore
+.gitignore
+docker-compose.yml
+deploy.sh
+
+# Ignore git repository data
+.git/
+
+# Ignore model cache (if using a mounted volume for it)
+models_cache/
