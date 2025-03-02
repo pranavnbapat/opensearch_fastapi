@@ -96,8 +96,8 @@ async def search_endpoint(request: SearchRequest):
         "knn": {
             "vector_embedding": {
                 "vector": query_vector,
-                "k": 20,  # Get top 10 nearest neighbors
-                **({"filter": {"bool": {"must": filter_conditions}}} if filter_conditions else {})
+                "k": 10,  # Get top 10 nearest neighbors
+                # **({"filter": {"bool": {"must": filter_conditions}}} if filter_conditions else {})
             }
         }
     }
@@ -114,7 +114,7 @@ async def search_endpoint(request: SearchRequest):
                 {"term": {"locations.raw": {"value": query, "boost": 3}}},  # Exact match
                 {"match": {"locations": {"query": query, "boost": 2}}},  # Full-text search
             ],
-        }
+        },
         # "minimum_should_match": 1,
     }
 
@@ -126,10 +126,12 @@ async def search_endpoint(request: SearchRequest):
         "sort": [{"_score": "desc"}],
         "query": {
             "bool": {
-                "must": [
-                    knn_query,  # ✅ k-NN Search (Correct Placement)
-                    bm25_query  # ✅ BM25 Search
+                "must": filter_conditions,
+                "should": [
+                    knn_query,  # k-NN Search
+                    bm25_query  # BM25 Search
                 ],
+                "minimum_should_match": 1
             }
         }
     }
