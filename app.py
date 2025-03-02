@@ -70,36 +70,6 @@ async def search_endpoint(request: SearchRequest):
     # Calculate pagination offset
     from_offset = (page_number - 1) * PAGE_SIZE
 
-    # Base bool query
-    bool_query = {
-        "must": [],
-        "should": [
-            # Vector Search
-            {
-                "script_score": {
-                    "query": {"exists": {"field": "vector_embedding"}},
-                    "script": {
-                        "source": """
-                            return cosineSimilarity(params.query_vector, doc['vector_embedding']) + 1.0;
-                        """,
-                        "params": {
-                            "query_vector": query_vector
-                        }
-                    }
-                }
-            },
-
-            # BM25 Search (Keyword Filtering)
-            {"term": {"keywords.raw": {"value": query, "boost": 6}}},  # Exact match
-            {"match": {"keywords": {"query": query, "boost": 5}}},  # Full-text search
-            {"term": {"projectAcronym.raw": {"value": query, "boost": 4}}},  # Exact match
-            {"match": {"projectAcronym": {"query": query, "boost": 3}}},  # Full-text search
-            {"term": {"locations.raw": {"value": query, "boost": 3}}},  # Exact match
-            {"match": {"locations": {"query": query, "boost": 2}}},  # Full-text search
-        ],
-        "minimum_should_match": 1,
-    }
-
     # Convert all filters to lowercase to match OpenSearch indexing
     def lowercase_list(values):
         return [v.lower() for v in values] if values else []
@@ -122,9 +92,31 @@ async def search_endpoint(request: SearchRequest):
     if request.locations:
         filter_conditions.append({"terms": {"locations": lowercase_list(request.locations)}})
 
-    # Apply filters only if they exist
-    if filter_conditions:
-        bool_query.setdefault("filter", []).extend(filter_conditions)
+    knn_query = {
+        "knn": {
+            "vector_embedding": {
+                "vector": query_vector,
+                "k": 20,  # Get top 10 nearest neighbors
+                **({"filter": {"bool": {"must": filter_conditions}}} if filter_conditions else {})
+            }
+        }
+    }
+
+    # BM25 bool query
+    bm25_query = {
+        "bool": {
+            "should": [
+                # BM25 Search (Keyword Filtering)
+                {"term": {"keywords.raw": {"value": query, "boost": 6}}},  # Exact match
+                {"match": {"keywords": {"query": query, "boost": 5}}},  # Full-text search
+                {"term": {"projectAcronym.raw": {"value": query, "boost": 4}}},  # Exact match
+                {"match": {"projectAcronym": {"query": query, "boost": 3}}},  # Full-text search
+                {"term": {"locations.raw": {"value": query, "boost": 3}}},  # Exact match
+                {"match": {"locations": {"query": query, "boost": 2}}},  # Full-text search
+            ],
+        }
+        # "minimum_should_match": 1,
+    }
 
     # Hybrid Query (k-NN + BM25)
     search_query = {
@@ -132,7 +124,14 @@ async def search_endpoint(request: SearchRequest):
         "size": PAGE_SIZE,
         "from": from_offset,
         "sort": [{"_score": "desc"}],
-        "query": {"bool": bool_query},
+        "query": {
+            "bool": {
+                "must": [
+                    knn_query,  # ✅ k-NN Search (Correct Placement)
+                    bm25_query  # ✅ BM25 Search
+                ],
+            }
+        }
     }
 
     response = search_opensearch(index_name, search_query)
