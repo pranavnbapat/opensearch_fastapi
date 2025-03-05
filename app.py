@@ -178,9 +178,10 @@ async def search_endpoint(request: SearchRequest):
         normalised_score = (raw_score - min_score) / (max_score - min_score) if max_score != min_score else 1.0
 
         results.append({
+            "_id": hit.get("_id", "N/A"),
             "title": hit["_source"].get("title_display", hit["_source"].get("title", "Untitled")),
             "summary": hit["_source"].get("summary_display", hit["_source"].get("summary", "No summary available")),
-            "acronym": hit["_source"].get("projectAcronym_display", hit["_source"].get("projectAcronym", "N/A")),
+            "projectAcronym": hit["_source"].get("projectAcronym_display", hit["_source"].get("projectAcronym", "N/A")),
             "projectName": hit["_source"].get("projectName_display", hit["_source"].get("projectName", "N/A")),
             "keywords": hit["_source"].get("keywords_display", hit["_source"].get("keywords", [])),
             "locations": hit["_source"].get("locations_display", hit["_source"].get("locations", [])),
@@ -189,17 +190,30 @@ async def search_endpoint(request: SearchRequest):
             "languages": hit["_source"].get("languages_display", hit["_source"].get("languages", [])),
             "fileType": hit["_source"].get("fileType_display", hit["_source"].get("fileType", "N/A")),
             "dateCreated": hit["_source"].get("dateCreated", "N/A"),
-            "creator_name": hit["_source"].get("creator_name", "N/A"),
-            "url": hit["_source"].get("URL", "N/A"),
+            "creators": hit["_source"].get("creators", []),
+            "@id": hit["_source"].get("@id", "N/A"),
             "raw_score": round(raw_score, 4),
             "normalised_score": round(normalised_score, 4)
         })
 
-    return {
-        "query": query,
-        "total_results": len(results),
-        "results": results,
-        "total_pages": total_pages,
-        "current_page": page_number,
+    response_json = {
+        "data": results,
+        "pagination": {
+            "total_records": total_results,
+            "current_page": page_number,
+            "total_pages": total_pages,
+            "next_page": page_number + 1 if page_number < total_pages else None,
+            "prev_page": page_number - 1 if page_number > 1 else None
+        }
     }
+
+    return response_json
+
+    # return {
+    #     "query": query,
+    #     "total_results": len(results),
+    #     "results": results,
+    #     "total_pages": total_pages,
+    #     "current_page": page_number,
+    # }
 
