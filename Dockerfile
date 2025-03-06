@@ -1,6 +1,15 @@
 # Use official Python image as base
 FROM python:3.11-slim
 
+# Install system dependencies for building fasttext
+RUN apt-get update && apt-get install -y \
+    g++ \
+    cmake \
+    libffi-dev \
+    libssl-dev \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set environment variables for models
 ENV MODEL_MPNET=sentence-transformers/all-mpnet-base-v2
 ENV MODEL_MINILM=sentence-transformers/all-MiniLM-L6-v2
@@ -13,6 +22,9 @@ WORKDIR /app
 
 # Copy dependency list first (improves caching)
 COPY requirements.txt .
+
+# Upgrade pip to latest version
+RUN pip install --upgrade pip
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
