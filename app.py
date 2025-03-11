@@ -217,3 +217,102 @@ async def search_endpoint(request: SearchRequest):
     #     "current_page": page_number,
     # }
 
+
+def neural_search_relevant(index_name, query, filters, page):
+    # Pagination offset
+    from_offset = (page - 1) * PAGE_SIZE
+
+    # Convert all filters to lowercase
+    def lowercase_list(values):
+        return [v.lower() for v in values] if values else []
+
+    # Filter conditions
+    filter_conditions = []
+    if filters.get("topics"):
+        filter_conditions.append({"terms": {"topics.raw": filters["topics"]}})
+    if filters.get("subtopics"):
+        filter_conditions.append({"terms": {"subtopics": lowercase_list(filters["subtopics"])}})
+    if filters.get("languages"):
+        filter_conditions.append({"terms": {"languages": lowercase_list(filters["languages"])}})
+    if filters.get("locations"):
+        filter_conditions.append({"terms": {"locations": lowercase_list(filters["locations"])}})
+    if filters.get("fileType"):
+        filter_conditions.append({"terms": {"fileType": filters["fileType"]}})
+
+    # BM25 Search Query
+    search_query = {
+        "_source": {
+            "excludes": [
+                "title_embedding",
+                "summary_embedding",
+                "keywords_embedding",
+                "topics_embedding",
+                "content_embedding",
+                "project_embedding",
+                "project_acronym_embedding",
+                "content_embedding_input",
+                "topics_embedding_input",
+                "keywords_embedding_input",
+                "content_pages",
+                "_orig_id",
+            ]
+        },
+        "track_total_hits": True,
+        "size": PAGE_SIZE,
+        "from": from_offset,
+        "sort": [{"_score": "desc"}],
+        "query": {
+            "bool": {
+                "must": {
+                    "multi_match": {
+                        "query": query,
+                        "fields": [
+                            "title^9",
+                            "keywords^8",
+                            "content_pages^7",
+                            "summary^6"
+                        ]
+                    }
+                },
+                "filter": filter_conditions
+            }
+        }
+    }
+
+    response = client.search(index=index_name, body=search_query)
+    return response
+
+
+class RelevantSearchRequest(BaseModel):
+    search_term: str
+    topics: Optional[List[str]] = None
+    languages: Optional[List[str]] = None
+    fileType: Optional[List[str]] = None
+    locations: Optional[List[str]] = None
+    page: Optional[int] = 1
+
+@app.post("/neural_search_relevant")
+async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
+    """Search using only BM25 (multi_match) with filters."""
+    if not request.search_term:
+        raise HTTPException(status_code=400, detail="No search term provided")
+
+    filters = {
+        "topics": request.topics,
+        "languages": request.languages,
+        "fileType": request.fileType,
+        "locations": request.locations
+    }
+
+    response = neural_search_relevant(
+        index_name="neural_search_index",
+        query=request.search_term,
+        filters=filters,
+        page=request.page
+    )
+
+    return {
+        "total_results": response["hits"]["total"]["value"],
+        "results": response["hits"]["hits"],
+        "current_page": request.page
+    }
