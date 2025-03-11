@@ -49,9 +49,8 @@ def generate_vector_neural_search(model, query: str):
         vector = vector.tolist()
 
     if not all(isinstance(v, (float, int)) for v in vector):
-        raise ValueError(f"❌ Invalid query vector format! Expected list of floats, got: {vector}")
+        raise ValueError(f"Invalid query vector format! Expected list of floats, got: {vector}")
 
-    print(f"✅ Query vector generated (length {len(vector)}): {vector[:5]} ...")  # Debugging
     return vector
 
     # if hasattr(vector, "tolist"):  # ✅ Convert NumPy array or Tensor to list
