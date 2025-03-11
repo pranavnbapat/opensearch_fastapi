@@ -2,6 +2,7 @@
 
 # import json
 import datetime
+import json
 import time
 
 from fastapi import FastAPI, HTTPException
@@ -9,8 +10,8 @@ from pydantic import BaseModel
 from typing import List, Optional
 from starlette.middleware.cors import CORSMiddleware
 
-from models.embedding import select_model, generate_vector
-from services.opensearch_service import search_opensearch, client
+from models.embedding import select_model, generate_vector, generate_vector_neural_search
+from services.opensearch_service import search_opensearch, client, lowercase_list
 from services.language_detect import detect_language, translate_text_with_backoff
 
 app = FastAPI(title="OpenSearch API", version="1.0")
@@ -69,10 +70,6 @@ async def search_endpoint(request: SearchRequest):
 
     # Calculate pagination offset
     from_offset = (page_number - 1) * PAGE_SIZE
-
-    # Convert all filters to lowercase to match OpenSearch indexing
-    def lowercase_list(values):
-        return [v.lower() for v in values] if values else []
 
     # Add filters (AND conditions)
     filter_conditions = []
@@ -222,10 +219,6 @@ def neural_search_relevant(index_name, query, filters, page):
     # Pagination offset
     from_offset = (page - 1) * PAGE_SIZE
 
-    # Convert all filters to lowercase
-    def lowercase_list(values):
-        return [v.lower() for v in values] if values else []
-
     # Filter conditions
     filter_conditions = []
     if filters.get("topics"):
@@ -268,9 +261,9 @@ def neural_search_relevant(index_name, query, filters, page):
                         "query": query,
                         "fields": [
                             "title^9",
-                            "keywords^8",
-                            "content_pages^7",
-                            "summary^6"
+                            "content_pages^8",
+                            "summary^7",
+                            "keywords^6"
                         ]
                     }
                 },
@@ -286,6 +279,7 @@ def neural_search_relevant(index_name, query, filters, page):
 class RelevantSearchRequest(BaseModel):
     search_term: str
     topics: Optional[List[str]] = None
+    subtopics: Optional[List[str]] = None
     languages: Optional[List[str]] = None
     fileType: Optional[List[str]] = None
     locations: Optional[List[str]] = None
@@ -299,6 +293,7 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
 
     filters = {
         "topics": request.topics,
+        "subtopics": request.subtopics,
         "languages": request.languages,
         "fileType": request.fileType,
         "locations": request.locations
@@ -316,3 +311,154 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
         "results": response["hits"]["hits"],
         "current_page": request.page
     }
+
+
+class KNNSearchRequest(BaseModel):
+    search_term: str
+    model: str
+    topics: Optional[List[str]] = None
+    subtopics: Optional[List[str]] = None
+    languages: Optional[List[str]] = None
+    fileType: Optional[List[str]] = None
+    locations: Optional[List[str]] = None
+    page: Optional[int] = 1
+
+
+def neural_search_knn(query, model_name, filters, page):
+    """Performs a k-NN (semantic search) with optional filters."""
+
+    # Generate vector embedding for the query
+    model, index_name = select_model(model_name)
+    query_vector = generate_vector_neural_search(model, query)
+
+    # ✅ Convert the vector explicitly to JSON-compatible format
+    if not isinstance(query_vector, list) or not all(isinstance(v, (float, int)) for v in query_vector):
+        raise ValueError(f"❌ Final Validation Failed! Query vector is not a valid list of floats: {query_vector}")
+
+    print(f"✅ Sending k-NN Query with vector (length {len(query_vector)})")
+
+    # Pagination offset
+    from_offset = (page - 1) * PAGE_SIZE
+
+    filter_conditions = []
+    if filters.get("topics"):
+        filter_conditions.append({"terms": {"topics.raw": filters["topics"]}})
+    if filters.get("subtopics"):
+        filter_conditions.append({"terms": {"subtopics": lowercase_list(filters["subtopics"])}})
+    if filters.get("languages"):
+        filter_conditions.append({"terms": {"languages": lowercase_list(filters["languages"])}})
+    if filters.get("locations"):
+        filter_conditions.append({"terms": {"locations": lowercase_list(filters["locations"])}})
+    if filters.get("fileType"):
+        filter_conditions.append({"terms": {"fileType": filters["fileType"]}})
+
+    # k-NN Query (Semantic Search)
+    search_query = {
+        "_source": {
+            "excludes": [
+                "title_embedding",
+                "summary_embedding",
+                "keywords_embedding",
+                "topics_embedding",
+                "content_embedding",
+                "project_embedding",
+                "project_acronym_embedding",
+                "content_embedding_input",
+                "topics_embedding_input",
+                "keywords_embedding_input",
+                "content_pages",
+                "_orig_id"
+            ]
+        },
+        "track_total_hits": True,
+        "size": PAGE_SIZE,
+        "from": from_offset,
+        "query": {
+            "bool": {
+                "should": [  # Use multiple embeddings for better relevance
+                    {
+                        "neural": {
+                            "content_embedding": {
+                                "query_text": query,
+                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "k": 20
+                            }
+                        }
+                    },
+                    {
+                        "neural": {
+                            "summary_embedding": {
+                                "query_text": query,
+                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "k": 20
+                            }
+                        }
+                    },
+                    {
+                        "neural": {
+                            "title_embedding": {
+                                "query_text": query,
+                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "k": 20
+                            }
+                        }
+                    },
+                    {
+                        "neural": {
+                            "keywords_embedding": {
+                                "query_text": query,
+                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "k": 20
+                            }
+                        }
+                    },
+                    {
+                        "neural": {
+                            "topics_embedding": {
+                                "query_text": query,
+                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "k": 20
+                            }
+                        }
+                    }
+                ],
+                "minimum_should_match": 1,
+                "filter": filter_conditions
+            }
+        }
+    }
+
+    response = client.search(index=index_name, body=search_query)
+    return response
+
+
+@app.post("/neural_search_knn")
+async def neural_search_knn_endpoint(request: KNNSearchRequest):
+    """Search using k-NN (semantic search) with filters."""
+    if not request.search_term:
+        raise HTTPException(status_code=400, detail="No search term provided")
+
+    filters = {
+        "topics": request.topics,
+        "subtopics": request.subtopics,
+        "languages": request.languages,
+        "fileType": request.fileType,
+        "locations": request.locations
+    }
+
+    try:
+        response = neural_search_knn(
+            query=request.search_term,
+            model_name=request.model or "msmarco",
+            filters=filters,
+            page=request.page
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "total_results": response["hits"]["total"]["value"],
+        "results": response["hits"]["hits"],
+        "current_page": request.page
+    }
+

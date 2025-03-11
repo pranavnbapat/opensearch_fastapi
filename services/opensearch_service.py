@@ -37,6 +37,9 @@ def search_opensearch(index_name: str, query_body: dict):
     except Exception as e:
         raise RuntimeError(f"OpenSearch query failed: {e}")
 
+# Convert all filters to lowercase to match OpenSearch indexing
+def lowercase_list(values):
+    return [v.lower() for v in values] if values else []
 
 # def apply_filters(request):
 #     """

@@ -1,5 +1,7 @@
 # models/embedding.py
 
+import numpy as np
+
 from functools import lru_cache
 from sentence_transformers import SentenceTransformer
 import os
@@ -16,7 +18,9 @@ def select_model(selected_model: str):
         "mpnet": ("MODEL_MPNET", "INDEX_NAME_MPNET"),
         "mxbai": ("MODEL_MXBAI", "INDEX_NAME_MXBAI"),
         "sentence_t5": ("MODEL_SENTENCE_T5", "INDEX_NAME_SENTENCE_T5"),
-        "multilingual_e5": ("MODEL_MULTILINGUAL_E5", "INDEX_NAME_MULTILINGUAL_E5")
+        "multilingual_e5": ("MODEL_MULTILINGUAL_E5", "INDEX_NAME_MULTILINGUAL_E5"),
+
+        "msmarco": ("MODEL_MSMARCO", "INDEX_NAME_MSMARCO"),
     }
 
     if selected_model in model_mapping:
@@ -35,3 +39,27 @@ def select_model(selected_model: str):
 def generate_vector(model, query: str):
     """Generate vector embeddings for the given query."""
     return model.encode(query).tolist()
+
+
+def generate_vector_neural_search(model, query: str):
+    """Generate vector embeddings for the given query."""
+    vector = model.encode(query)
+
+    if isinstance(vector, np.ndarray):
+        vector = vector.tolist()
+
+    if not all(isinstance(v, (float, int)) for v in vector):
+        raise ValueError(f"❌ Invalid query vector format! Expected list of floats, got: {vector}")
+
+    print(f"✅ Query vector generated (length {len(vector)}): {vector[:5]} ...")  # Debugging
+    return vector
+
+    # if hasattr(vector, "tolist"):  # ✅ Convert NumPy array or Tensor to list
+    #     vector = vector.tolist()
+    #
+    # # ✅ Final Check
+    # if not isinstance(vector, list) or not all(isinstance(v, (float, int)) for v in vector):
+    #     raise ValueError(f"Invalid query vector format: {vector}")
+    #
+    # return vector  # Ensure it's a list of floats
+
