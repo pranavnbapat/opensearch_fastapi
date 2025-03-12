@@ -322,9 +322,23 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
     # Perform Analysis on Search Results
     # analysis = analyze_search_results(results)
 
+    formatted_results = []
+    for hit in results:
+        source = hit["_source"]
+
+        # Convert dateCreated from YYYY-MM-DD to DD-MM-YYYY
+        date_created = source.get("dateCreated", "N/A")
+        try:
+            formatted_date = datetime.datetime.strptime(date_created, "%Y-%m-%d").strftime("%d-%m-%Y")
+        except ValueError:
+            formatted_date = date_created  # Keep as is if conversion fails
+
+        # Update result entry with formatted date
+        source["dateCreated"] = formatted_date
+        formatted_results.append(hit)
+
     response_json = {
-        "data": results,
-        # "analysis": analysis,
+        "data": formatted_results,
         "pagination": {
             "total_records": total_results,
             "current_page": page_number,
