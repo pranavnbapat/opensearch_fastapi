@@ -233,6 +233,22 @@ def neural_search_relevant(index_name, query, filters, page):
     if filters.get("fileType"):
         filter_conditions.append({"terms": {"fileType": filters["fileType"]}})
 
+    # Decide query type based on whether search_term is provided
+    if not query:
+        query_part = {"match_all": {}}  # Retrieve all documents
+    else:
+        query_part = {
+            "multi_match": {
+                "query": query,
+                "fields": [
+                    "title^9",
+                    "content_pages^8",
+                    "summary^7",
+                    "keywords^6"
+                ]
+            }
+        }
+
     # BM25 Search Query
     search_query = {
         "_source": {
@@ -257,17 +273,7 @@ def neural_search_relevant(index_name, query, filters, page):
         "sort": [{"_score": "desc"}],
         "query": {
             "bool": {
-                "must": {
-                    "multi_match": {
-                        "query": query,
-                        "fields": [
-                            "title^9",
-                            "content_pages^8",
-                            "summary^7",
-                            "keywords^6"
-                        ]
-                    }
-                },
+                "must": query_part,
                 "filter": filter_conditions
             }
         }
@@ -289,8 +295,8 @@ class RelevantSearchRequest(BaseModel):
 @app.post("/neural_search_relevant")
 async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
     """Search using only BM25 (multi_match) with filters."""
-    if not request.search_term:
-        raise HTTPException(status_code=400, detail="No search term provided")
+    # if not request.search_term:
+    #     raise HTTPException(status_code=400, detail="No search term provided")
 
     page_number = max(request.page, 1)
 
@@ -311,9 +317,6 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
 
     total_results = response["hits"]["total"]["value"]
     total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
-    print("PAGE_SIZE: ", PAGE_SIZE)
-    print("total_results: ", total_results)
-    print("total_pages: ", total_pages)
     results = response["hits"]["hits"]
 
     # Perform Analysis on Search Results
