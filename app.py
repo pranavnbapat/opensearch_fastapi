@@ -11,8 +11,9 @@ from typing import List, Optional
 from starlette.middleware.cors import CORSMiddleware
 
 from models.embedding import select_model, generate_vector, generate_vector_neural_search
-from services.opensearch_service import search_opensearch, client, lowercase_list
 from services.language_detect import detect_language, translate_text_with_backoff
+from services.opensearch_service import search_opensearch, client, lowercase_list
+from services.validate_and_analyse_results import analyze_search_results
 
 app = FastAPI(title="OpenSearch API", version="1.0")
 
@@ -291,6 +292,8 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
     if not request.search_term:
         raise HTTPException(status_code=400, detail="No search term provided")
 
+    page_number = max(request.page, 1)
+
     filters = {
         "topics": request.topics,
         "subtopics": request.subtopics,
@@ -303,19 +306,37 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
         index_name="neural_search_index",
         query=request.search_term,
         filters=filters,
-        page=request.page
+        page=page_number
     )
 
-    return {
-        "total_results": response["hits"]["total"]["value"],
-        "results": response["hits"]["hits"],
-        "current_page": request.page
+    total_results = response["hits"]["total"]["value"]
+    total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
+    print("PAGE_SIZE: ", PAGE_SIZE)
+    print("total_results: ", total_results)
+    print("total_pages: ", total_pages)
+    results = response["hits"]["hits"]
+
+    # Perform Analysis on Search Results
+    # analysis = analyze_search_results(results)
+
+    response_json = {
+        "data": results,
+        # "analysis": analysis,
+        "pagination": {
+            "total_records": total_results,
+            "current_page": page_number,
+            "total_pages": total_pages,
+            "next_page": page_number + 1 if page_number < total_pages else None,
+            "prev_page": page_number - 1 if page_number > 1 else None
+        }
     }
+
+    return response_json
 
 
 class KNNSearchRequest(BaseModel):
     search_term: str
-    model: str
+    model: str = "msmarco"
     topics: Optional[List[str]] = None
     subtopics: Optional[List[str]] = None
     languages: Optional[List[str]] = None
@@ -324,18 +345,23 @@ class KNNSearchRequest(BaseModel):
     page: Optional[int] = 1
 
 
-def neural_search_knn(query, model_name, filters, page):
+MODEL_IDS_FOR_NS = {
+    "msmarco": "LciGfZUBVa2ERaFSUEya",
+}
+
+
+def neural_search_knn(query, model_name, filters, page, model_id):
     """Performs a k-NN (semantic search) with optional filters."""
 
     # Generate vector embedding for the query
     model, index_name = select_model(model_name)
     query_vector = generate_vector_neural_search(model, query)
 
-    # ✅ Convert the vector explicitly to JSON-compatible format
+    # Convert the vector explicitly to JSON-compatible format
     if not isinstance(query_vector, list) or not all(isinstance(v, (float, int)) for v in query_vector):
-        raise ValueError(f"❌ Final Validation Failed! Query vector is not a valid list of floats: {query_vector}")
+        raise ValueError(f"Final Validation Failed! Query vector is not a valid list of floats: {query_vector}")
 
-    print(f"✅ Sending k-NN Query with vector (length {len(query_vector)})")
+    # print(f"Sending k-NN Query with vector (length {len(query_vector)})")
 
     # Pagination offset
     from_offset = (page - 1) * PAGE_SIZE
@@ -380,7 +406,7 @@ def neural_search_knn(query, model_name, filters, page):
                         "neural": {
                             "content_embedding": {
                                 "query_text": query,
-                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "model_id": model_id,
                                 "k": 20
                             }
                         }
@@ -389,7 +415,7 @@ def neural_search_knn(query, model_name, filters, page):
                         "neural": {
                             "summary_embedding": {
                                 "query_text": query,
-                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "model_id": model_id,
                                 "k": 20
                             }
                         }
@@ -398,7 +424,7 @@ def neural_search_knn(query, model_name, filters, page):
                         "neural": {
                             "title_embedding": {
                                 "query_text": query,
-                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "model_id": model_id,
                                 "k": 20
                             }
                         }
@@ -407,7 +433,7 @@ def neural_search_knn(query, model_name, filters, page):
                         "neural": {
                             "keywords_embedding": {
                                 "query_text": query,
-                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "model_id": model_id,
                                 "k": 20
                             }
                         }
@@ -416,7 +442,7 @@ def neural_search_knn(query, model_name, filters, page):
                         "neural": {
                             "topics_embedding": {
                                 "query_text": query,
-                                "model_id": "LciGfZUBVa2ERaFSUEya",
+                                "model_id": model_id,
                                 "k": 20
                             }
                         }
@@ -438,6 +464,15 @@ async def neural_search_knn_endpoint(request: KNNSearchRequest):
     if not request.search_term:
         raise HTTPException(status_code=400, detail="No search term provided")
 
+    model_name = request.model
+
+    # Validate model
+    if model_name not in MODEL_IDS_FOR_NS:
+        raise HTTPException(status_code=400,
+                            detail=f"Invalid model '{model_name}'. Available models: {list(MODEL_IDS_FOR_NS.keys())}")
+
+    model_id = MODEL_IDS_FOR_NS[model_name]
+
     filters = {
         "topics": request.topics,
         "subtopics": request.subtopics,
@@ -449,16 +484,23 @@ async def neural_search_knn_endpoint(request: KNNSearchRequest):
     try:
         response = neural_search_knn(
             query=request.search_term,
-            model_name=request.model or "msmarco",
+            model_name=model_name,
             filters=filters,
-            page=request.page
+            page=request.page,
+            model_id=model_id
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    total_results = response["hits"]["total"]["value"]
+    results = response["hits"]["hits"]
+    # Perform Analysis on Search Results
+    analysis = analyze_search_results(results)
+
     return {
-        "total_results": response["hits"]["total"]["value"],
-        "results": response["hits"]["hits"],
+        "total_results": total_results,
+        "results": results,
+        "analysis": analysis,
         "current_page": request.page
     }
 

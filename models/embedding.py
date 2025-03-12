@@ -52,13 +52,3 @@ def generate_vector_neural_search(model, query: str):
         raise ValueError(f"Invalid query vector format! Expected list of floats, got: {vector}")
 
     return vector
-
-    # if hasattr(vector, "tolist"):  # ✅ Convert NumPy array or Tensor to list
-    #     vector = vector.tolist()
-    #
-    # # ✅ Final Check
-    # if not isinstance(vector, list) or not all(isinstance(v, (float, int)) for v in vector):
-    #     raise ValueError(f"Invalid query vector format: {vector}")
-    #
-    # return vector  # Ensure it's a list of floats
-
