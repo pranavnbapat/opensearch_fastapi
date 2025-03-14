@@ -1,10 +1,11 @@
 services:
-  fastapi:
+  opensearch_fastapi:
     build:
       context: .
       dockerfile: Dockerfile
     image: ghcr.io/pranavnbapat/opensearch_fastapi:latest
     container_name: opensearch_fastapi
+    restart: unless-stopped
     env_file:
       - .env
     ports:

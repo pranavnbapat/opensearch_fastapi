@@ -2,7 +2,6 @@
 
 import deepl
 import logging
-import fasttext
 import numpy as np
 import os
 import time
@@ -18,7 +17,7 @@ fasttext.FastText.np.array = lambda obj, **kwargs: np.asarray(obj, **kwargs)  # 
 load_dotenv()
 
 # FastText Model Path
-MODEL_PATH = os.getenv("FASTTEXT_LANGDETECT_MODEL_PATH", "lid.176.bin")
+MODEL_PATH = os.getenv("FASTTEXT_LANGDETECT_MODEL_PATH", "../lid.176.bin")
 
 # DeepL & Google Translate API keys
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")

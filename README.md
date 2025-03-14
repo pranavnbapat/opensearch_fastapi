@@ -13,9 +13,9 @@ cd opensearch-fastapi
 ```
 
 ### 2. Clone the repository
-Create a .envfileexample.envfillet
+Create an .env file from .env.sample
 ```bash
-cp example.env .env
+cp .env.sample .env
 ```
 
 ## 🚀 Running the Service Locally
