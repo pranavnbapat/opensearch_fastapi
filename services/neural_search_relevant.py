@@ -23,7 +23,7 @@ def neural_search_relevant(index_name, query, filters, page):
     # Filter conditions
     filter_conditions = []
     if filters.get("topics"):
-        filter_conditions.append({"terms": {"topics.raw": filters["topics"]}})
+        filter_conditions.append({"terms": {"topics": filters["topics"]}})
     if filters.get("subtopics"):
         filter_conditions.append({"terms": {"subtopics": lowercase_list(filters["subtopics"])}})
     if filters.get("languages"):
@@ -61,7 +61,7 @@ def neural_search_relevant(index_name, query, filters, page):
                 "project_embedding",
                 "project_acronym_embedding",
                 "content_embedding_input",
-                "topics_embedding_input",
+                # "topics_embedding_input",
                 "keywords_embedding_input",
                 "content_pages",
                 "_orig_id",

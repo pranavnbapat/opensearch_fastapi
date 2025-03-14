@@ -11,13 +11,13 @@ from google.cloud import translate_v2 as translate
 
 # Fix FastText's NumPy compatibility
 import fasttext.FastText
-fasttext.FastText.np.array = lambda obj, **kwargs: np.asarray(obj, **kwargs)  # Force `asarray`
+fasttext.FastText.np.array = lambda obj, *args, **kwargs: np.asarray(obj, *args)
 
 # Load environment variables
 load_dotenv()
 
 # FastText Model Path
-MODEL_PATH = os.getenv("FASTTEXT_LANGDETECT_MODEL_PATH", "../lid.176.bin")
+MODEL_PATH = os.getenv("FASTTEXT_LANGDETECT_MODEL_PATH", "lid.176.bin")
 
 # DeepL & Google Translate API keys
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")

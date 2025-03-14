@@ -216,7 +216,6 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
 
     query = request.search_term.strip()
     detected_lang = detect_language(query)
-    print("detected_lang: ", detected_lang)
 
     filters = {
         "topics": request.topics,
@@ -226,38 +225,24 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
         "locations": request.locations
     }
 
-    response_original = neural_search_relevant(
+    print(filters)
+
+    response = neural_search_relevant(
         index_name="neural_search_index",
         query=query,
         filters=filters,
         page=page_number
     )
 
-    original_results = response_original["hits"]["hits"]
-
-    english_results = []
-    if detected_lang != "en":
-        translated_query = translate_text_with_backoff(query, "en")
-        print("translated_query: ", translated_query)
-
-        response_english = neural_search_relevant(
-            index_name="neural_search_index",
-            query=translated_query,
-            filters=filters,
-            page=page_number
-        )
-        english_results = response_english["hits"]["hits"]
-
-    all_results = original_results + english_results
-
-    total_results = len(all_results)
+    total_results = response["hits"]["total"]["value"]
     total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
+    results = response["hits"]["hits"]
 
     # Perform Analysis on Search Results
     # analysis = analyze_search_results(results)
 
     formatted_results = []
-    for hit in all_results:
+    for hit in results:
         source = hit["_source"]
 
         # Convert dateCreated from YYYY-MM-DD to DD-MM-YYYY
