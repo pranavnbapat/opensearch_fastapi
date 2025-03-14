@@ -336,6 +336,9 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
         # Update result entry with formatted date
         source["dateCreated"] = formatted_date
 
+        # Copy keywords to _tags
+        source["_tags"] = source.get("keywords", [])
+
         # Flatten structure: move _score and _id to the same level as _source contents
         flattened_result = {"_id": hit["_id"], "_score": hit["_score"], **source}
         formatted_results.append(flattened_result)
