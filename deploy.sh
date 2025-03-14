@@ -1,4 +1,4 @@
 #!/bin/bash
 
-docker compose build fastapi
-docker compose push fastapi
+docker compose build opensearch_fastapi
+docker compose push opensearch_fastapi

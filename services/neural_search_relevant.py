@@ -1,7 +1,7 @@
 # neural_search_relevant.py
 
 from typing import List, Optional
-from utils import lowercase_list, PAGE_SIZE
+from services.utils import lowercase_list, PAGE_SIZE
 from pydantic import BaseModel
 from services.opensearch_service import client
 

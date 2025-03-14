@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 from pydantic import BaseModel
-from utils import lowercase_list, PAGE_SIZE
+from services.utils import lowercase_list, PAGE_SIZE
 from models.embedding import select_model, generate_vector_neural_search
 from services.opensearch_service import client
 
