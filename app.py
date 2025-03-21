@@ -225,10 +225,10 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
         "locations": request.locations
     }
 
-    print(filters)
+    index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
 
     response = neural_search_relevant(
-        index_name="neural_search_index",
+        index_name=index_name,
         query=query,
         filters=filters,
         page=page_number

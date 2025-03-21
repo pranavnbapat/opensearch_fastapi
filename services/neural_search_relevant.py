@@ -14,6 +14,7 @@ class RelevantSearchRequest(BaseModel):
     fileType: Optional[List[str]] = None
     locations: Optional[List[str]] = None
     page: Optional[int] = 1
+    dev: Optional[bool] = False
 
 
 def neural_search_relevant(index_name, query, filters, page):
