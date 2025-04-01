@@ -215,13 +215,15 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
     page_number = max(request.page, 1)
 
     query = request.search_term.strip()
-    detected_lang = detect_language(query)
+    # detected_lang = detect_language(query)
 
     filters = {
         "topics": request.topics,
         "subtopics": request.subtopics,
         "languages": request.languages,
         "fileType": request.fileType,
+        "project_type": request.project_type,
+        "projectAcronym": request.projectAcronym,
         "locations": request.locations
     }
 
