@@ -16,6 +16,9 @@ __pycache__/
 *.log
 *.bin
 
+# Ignore backup files
+*.bak
+
 # Ignore Docker-related files (if not needed inside the container)
 .dockerignore
 .gitignore

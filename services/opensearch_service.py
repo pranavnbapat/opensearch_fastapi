@@ -5,7 +5,7 @@ import os
 
 from dotenv import load_dotenv
 from opensearchpy import OpenSearch, RequestsHttpConnection
-from models.embedding import select_model, generate_vector
+#from models.embedding import select_model, generate_vector
 from services.language_detect import detect_language, translate_text_with_backoff
 
 load_dotenv()

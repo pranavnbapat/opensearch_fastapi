@@ -10,8 +10,10 @@ from dotenv import load_dotenv
 from google.cloud import translate_v2 as translate
 
 # Fix FastText's NumPy compatibility
-import fasttext.FastText
-fasttext.FastText.np.array = lambda obj, *args, **kwargs: np.asarray(obj, *args)
+# import fasttext.FastText
+# fasttext.FastText.np.array = lambda obj, *args, **kwargs: np.asarray(obj, *args)
+
+import fasttext
 
 # Load environment variables
 load_dotenv()

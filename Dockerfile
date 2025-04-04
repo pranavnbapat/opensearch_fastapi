@@ -1,49 +1,48 @@
 # Use official Python image as base
 FROM python:3.11-slim
 
-# Install system dependencies for building fasttext
-RUN apt-get update && apt-get install -y \
-    g++ \
-    cmake \
-    libffi-dev \
-    libssl-dev \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set environment variables for models
-ENV MODEL_MPNET=sentence-transformers/all-mpnet-base-v2
-ENV MODEL_MINILM=sentence-transformers/all-MiniLM-L6-v2
-ENV MODEL_MXBAI=mixedbread-ai/mxbai-embed-large-v1
-ENV MODEL_SENTENCE_T5=sentence-transformers/sentence-t5-base
-ENV MODEL_MULTILINGUAL_E5=intfloat/multilingual-e5-large
-
 # Set working directory
 WORKDIR /app
 
 # Copy dependency list first (improves caching)
 COPY requirements.txt .
 
+# Install system dependencies, upgrade pip, install Python packages, download NLTK stopwords
+RUN apt-get update && apt-get install -y \
+    g++ cmake libffi-dev libssl-dev wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
+    && python -m nltk.downloader stopwords
+
+# Set environment variables for models
+#ENV MODEL_MPNET=sentence-transformers/all-mpnet-base-v2
+#ENV MODEL_MINILM=sentence-transformers/all-MiniLM-L6-v2
+#ENV MODEL_MXBAI=mixedbread-ai/mxbai-embed-large-v1
+#ENV MODEL_SENTENCE_T5=sentence-transformers/sentence-t5-base
+#ENV MODEL_MULTILINGUAL_E5=intfloat/multilingual-e5-large
+
 # Upgrade pip to latest version
-RUN pip install --upgrade pip
+#RUN pip install --upgrade pip
 
 # Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+#RUN pip install --no-cache-dir -r requirements.txt
 
 # Download NLTK stopwords corpus to avoid runtime fetch
-RUN python -m nltk.downloader stopwords
+#RUN python -m nltk.downloader stopwords
 
 # Download FastText language model
 RUN wget -O /app/lid.176.bin https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
 
 # Preload all models separately to cache them effectively
 # Ensure cache is cleared and models are reloaded
-RUN rm -rf /root/.cache/huggingface/transformers && \
-    python -c "from sentence_transformers import SentenceTransformer; \
-        SentenceTransformer('${MODEL_MPNET}'); \
-        SentenceTransformer('${MODEL_MINILM}'); \
-        SentenceTransformer('${MODEL_MXBAI}'); \
-        SentenceTransformer('${MODEL_SENTENCE_T5}'); \
-        SentenceTransformer('${MODEL_MULTILINGUAL_E5}')"
+#RUN rm -rf /root/.cache/huggingface/transformers && \
+#    python -c "from sentence_transformers import SentenceTransformer; \
+#        SentenceTransformer('${MODEL_MPNET}'); \
+#        SentenceTransformer('${MODEL_MINILM}'); \
+#        SentenceTransformer('${MODEL_MXBAI}'); \
+#        SentenceTransformer('${MODEL_SENTENCE_T5}'); \
+#        SentenceTransformer('${MODEL_MULTILINGUAL_E5}')"
 
 
 # Copy the rest of the project files
