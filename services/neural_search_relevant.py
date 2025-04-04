@@ -1,7 +1,7 @@
 # neural_search_relevant.py
 
 from typing import List, Optional
-from services.utils import lowercase_list, PAGE_SIZE
+from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query
 from pydantic import BaseModel
 from services.opensearch_service import client
 
@@ -44,9 +44,11 @@ def neural_search_relevant(index_name, query, filters, page):
     if not query:
         query_part = {"match_all": {}}  # Retrieve all documents
     else:
+        filtered_query = remove_stopwords_from_query(query)
+
         query_part = {
             "multi_match": {
-                "query": query,
+                "query": filtered_query,
                 "fields": [
                     "title^9",
                     "content_pages^8",

@@ -29,6 +29,9 @@ RUN pip install --upgrade pip
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Download NLTK stopwords corpus to avoid runtime fetch
+RUN python -m nltk.downloader stopwords
+
 # Download FastText language model
 RUN wget -O /app/lid.176.bin https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
 
