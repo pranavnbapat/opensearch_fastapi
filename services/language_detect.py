@@ -5,14 +5,21 @@ import logging
 import numpy as np
 import os
 import time
+import langid
 
 from dotenv import load_dotenv
 from google.cloud import translate_v2 as translate
+from langdetect import detect as langdetect_detect
 
-# Fix FastText's NumPy compatibility
-# import fasttext.FastText
-# fasttext.FastText.np.array = lambda obj, *args, **kwargs: np.asarray(obj, *args)
+# Monkey patch numpy.array BEFORE anything else that might use it
+original_array = np.array
+def safe_array(obj, *args, **kwargs):
+    if "copy" in kwargs and kwargs["copy"] is False:
+        return np.asarray(obj, *args, **kwargs)
+    return original_array(obj, *args, **kwargs)
+np.array = safe_array
 
+# Now import fasttext (after patch)
 import fasttext
 
 # Load environment variables
@@ -47,20 +54,34 @@ DEEPL_SUPPORTED_LANGUAGES = {
 }
 
 def detect_language(text: str) -> str:
-    """Detect the language of a given text using FastText."""
+    """Detect the language of a given text using FastText, then langdetect, then langid as fallback."""
     if not lang_model:
-        logger.warning("FastText model is not loaded. Returning 'unknown'.")
-        return "unknown"
+        logger.warning("FastText model not loaded. Falling back to langdetect/langid.")
+    else:
+        try:
+            labels, probs = lang_model.predict(text, k=1)
+            lang_code = labels[0].replace("__label__", "")
+            logger.info(f"FastText detected: {lang_code} for text: {text[:30]}...")
+            return lang_code
+        except Exception as e:
+            logger.warning(f"FastText failed: {e}. Falling back to langdetect...")
 
+    # Fallback to langdetect
     try:
-        labels, probs = lang_model.predict(text, k=1)
-        lang_code = labels[0].replace("__label__", "")
-
-        logger.info(f"Detected language: {lang_code} for text: {text[:30]}...")  # Log first 30 chars for debugging
-        return lang_code
+        lang = langdetect_detect(text)
+        logger.info(f"langdetect detected: {lang} for text: {text[:30]}...")
+        return lang
     except Exception as e:
-        logger.error(f"Error detecting language for text: {text[:30]}... - {e}")
-        return "unknown"  # Fallback if detection fails
+        logger.warning(f"langdetect failed: {e}. Falling back to langid...")
+
+    # Fallback to langid
+    try:
+        lang, _ = langid.classify(text)
+        logger.info(f"langid detected: {lang} for text: {text[:30]}...")
+        return lang
+    except Exception as e:
+        logger.error(f"❌ All language detection methods failed for text: {text[:30]}... - {e}")
+        return "unknown"
 
 
 def translate_text_with_backoff(text, target_language, max_retries=3):

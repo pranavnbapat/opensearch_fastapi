@@ -218,7 +218,15 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
     page_number = max(request.page, 1)
 
     query = request.search_term.strip()
-    # detected_lang = detect_language(query)
+    detected_lang = detect_language(query)
+
+    # Translate if not English
+    if detected_lang != "en":
+        try:
+            query = translate_text_with_backoff(query, target_language="EN")
+            logger.info(f"Translated query to English: {query}")
+        except Exception as e:
+            logger.error(f"Failed to translate non-English query: {e}")
 
     filters = {
         "topics": request.topics,
