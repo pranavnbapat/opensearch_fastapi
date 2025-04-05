@@ -12,6 +12,8 @@ def get_stopwords(lang="english"):
 
 STOPWORDS = get_stopwords()
 
+K_VALUE = 10
+
 PAGE_SIZE = 10
 
 # Convert all filters to lowercase to match OpenSearch indexing

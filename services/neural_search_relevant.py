@@ -1,9 +1,10 @@
 # neural_search_relevant.py
 
-from typing import List, Optional
-from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query
+from typing import List, Optional, Dict, Any
+from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE
 from pydantic import BaseModel
 from services.opensearch_service import client
+import os
 
 
 class RelevantSearchRequest(BaseModel):
@@ -17,9 +18,21 @@ class RelevantSearchRequest(BaseModel):
     locations: Optional[List[str]] = None
     page: Optional[int] = 1
     dev: Optional[bool] = False
+    use_semantic: Optional[bool] = True
 
 
-def neural_search_relevant(index_name, query, filters, page):
+def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any], page: int, use_semantic: bool = True):
+# def neural_search_relevant(index_name, query, filters, page):
+    """
+    Perform semantic or BM25-based neural search against OpenSearch.
+
+    :param index_name: Name of the OpenSearch index.
+    :param query: The raw user query string.
+    :param filters: Dictionary of filters (topics, subtopics, etc.).
+    :param page: Page number for pagination.
+    :param use_semantic: Whether to use OpenSearch's neural search.
+    :return: OpenSearch response as JSON.
+    """
     # Pagination offset
     from_offset = (page - 1) * PAGE_SIZE
 
@@ -43,6 +56,61 @@ def neural_search_relevant(index_name, query, filters, page):
     # Decide query type based on whether search_term is provided
     if not query:
         query_part = {"match_all": {}}  # Retrieve all documents
+    elif use_semantic:
+        # Neural semantic search
+        model_id = os.getenv("OPENSEARCH_MSMARCO_MODEL_ID", "LciGfZUBVa2ERaFSUEya")  # Fallback to default if not set
+        query_part = {
+            "bool": {
+                "should": [
+                    {
+                        "neural": {
+                            "title_embedding": {
+                                "query_text": query,
+                                "model_id": model_id,
+                                "k": K_VALUE
+                            }
+                        }
+                    },
+                    {
+                        "neural": {
+                            "summary_embedding": {
+                                "query_text": query,
+                                "model_id": model_id,
+                                "k": K_VALUE
+                            }
+                        }
+                    },
+                    {
+                        "neural": {
+                            "keywords_embedding": {
+                                "query_text": query,
+                                "model_id": model_id,
+                                "k": K_VALUE
+                            }
+                        }
+                    },
+                    {
+                        "neural": {
+                            "content_embedding": {
+                                "query_text": query,
+                                "model_id": model_id,
+                                "k": K_VALUE
+                            }
+                        }
+                    },
+                    {
+                        "neural": {
+                            "project_embedding": {
+                                "query_text": query,
+                                "model_id": model_id,
+                                "k": K_VALUE
+                            }
+                        }
+                    },
+                ],
+                "minimum_should_match": 1  # At least one should match
+            }
+        }
     else:
         filtered_query = remove_stopwords_from_query(query)
 
@@ -58,7 +126,8 @@ def neural_search_relevant(index_name, query, filters, page):
             }
         }
 
-    # BM25 Search Query
+
+    # Final OpenSearch query
     search_query = {
         "_source": {
             "excludes": [

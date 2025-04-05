@@ -2,6 +2,9 @@
 
 import datetime
 import time
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -233,7 +236,8 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
         index_name=index_name,
         query=query,
         filters=filters,
-        page=page_number
+        page=page_number,
+        use_semantic=request.use_semantic
     )
 
     total_results = response["hits"]["total"]["value"]
@@ -274,6 +278,8 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
             "prev_page": page_number - 1 if page_number > 1 else None
         }
     }
+
+    logger.info(f"Search Query: '{query}', Semantic: {request.use_semantic}, Index: {index_name}, Page: {page_number}")
 
     return response_json
 
