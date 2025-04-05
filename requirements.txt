@@ -7,7 +7,6 @@ click==8.1.8
 deepl==1.21.0
 Events==0.5
 fastapi==0.115.8
-fasttext==0.9.3
 filelock==3.17.0
 fsspec==2025.2.0
 google-api-core==2.24.1

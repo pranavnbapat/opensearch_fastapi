@@ -2,7 +2,6 @@
 
 import deepl
 import logging
-import numpy as np
 import os
 import time
 import langid
@@ -11,22 +10,8 @@ from dotenv import load_dotenv
 from google.cloud import translate_v2 as translate
 from langdetect import detect as langdetect_detect
 
-# Monkey patch numpy.array BEFORE anything else that might use it
-original_array = np.array
-def safe_array(obj, *args, **kwargs):
-    if "copy" in kwargs and kwargs["copy"] is False:
-        return np.asarray(obj, *args, **kwargs)
-    return original_array(obj, *args, **kwargs)
-np.array = safe_array
-
-# Now import fasttext (after patch)
-import fasttext
-
 # Load environment variables
 load_dotenv()
-
-# FastText Model Path
-MODEL_PATH = os.getenv("FASTTEXT_LANGDETECT_MODEL_PATH", "lid.176.bin")
 
 # DeepL & Google Translate API keys
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
@@ -34,14 +19,6 @@ USE_GOOGLE_TRANSLATE = os.getenv("USE_GOOGLE_TRANSLATE", "false").lower() == "tr
 
 # Set up logging
 logger = logging.getLogger(__name__)
-
-# Load FastText model once
-try:
-    print(f"Loading FastText language model from: {MODEL_PATH}")
-    lang_model = fasttext.load_model(MODEL_PATH)
-except Exception as e:
-    print(f"Error loading FastText model: {e}")
-    lang_model = None  # Fallback if model fails
 
 # Initialize translation clients
 deepl_translator = deepl.Translator(DEEPL_API_KEY) if DEEPL_API_KEY else None
@@ -54,19 +31,7 @@ DEEPL_SUPPORTED_LANGUAGES = {
 }
 
 def detect_language(text: str) -> str:
-    """Detect the language of a given text using FastText, then langdetect, then langid as fallback."""
-    if not lang_model:
-        logger.warning("FastText model not loaded. Falling back to langdetect/langid.")
-    else:
-        try:
-            labels, probs = lang_model.predict(text, k=1)
-            lang_code = labels[0].replace("__label__", "")
-            logger.info(f"FastText detected: {lang_code} for text: {text[:30]}...")
-            return lang_code
-        except Exception as e:
-            logger.warning(f"FastText failed: {e}. Falling back to langdetect...")
-
-    # Fallback to langdetect
+    """Detect the language of a given text using langdetect and langid."""
     try:
         lang = langdetect_detect(text)
         logger.info(f"langdetect detected: {lang} for text: {text[:30]}...")
@@ -74,13 +39,12 @@ def detect_language(text: str) -> str:
     except Exception as e:
         logger.warning(f"langdetect failed: {e}. Falling back to langid...")
 
-    # Fallback to langid
     try:
         lang, _ = langid.classify(text)
         logger.info(f"langid detected: {lang} for text: {text[:30]}...")
         return lang
     except Exception as e:
-        logger.error(f"❌ All language detection methods failed for text: {text[:30]}... - {e}")
+        logger.error(f"All language detection methods failed for text: {text[:30]}... - {e}")
         return "unknown"
 
 
