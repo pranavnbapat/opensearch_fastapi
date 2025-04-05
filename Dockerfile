@@ -22,17 +22,8 @@ RUN apt-get update && apt-get install -y \
 #ENV MODEL_SENTENCE_T5=sentence-transformers/sentence-t5-base
 #ENV MODEL_MULTILINGUAL_E5=intfloat/multilingual-e5-large
 
-# Upgrade pip to latest version
-#RUN pip install --upgrade pip
-
-# Install dependencies
-#RUN pip install --no-cache-dir -r requirements.txt
-
-# Download NLTK stopwords corpus to avoid runtime fetch
-#RUN python -m nltk.downloader stopwords
-
 # Download FastText language model
-RUN wget -O /app/lid.176.bin https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
+#RUN wget -O /app/lid.176.bin https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
 
 # Preload all models separately to cache them effectively
 # Ensure cache is cleared and models are reloaded
