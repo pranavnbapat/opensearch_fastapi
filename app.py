@@ -12,7 +12,7 @@ from typing import List, Optional
 from starlette.middleware.cors import CORSMiddleware
 
 #from models.embedding import select_model, generate_vector, generate_vector_neural_search
-from services.language_detect import detect_language, translate_text_with_backoff
+from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
 from services.opensearch_service import search_opensearch, client
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
 # from services.neural_search_knn import neural_search_knn, KNNSearchRequest, MODEL_IDS_FOR_NS
@@ -221,12 +221,14 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
     detected_lang = detect_language(query)
 
     # Translate if not English
-    if detected_lang != "en":
+    if detected_lang != "en" and detected_lang.upper() in DEEPL_SUPPORTED_LANGUAGES:
         try:
             query = translate_text_with_backoff(query, target_language="EN")
             logger.info(f"Translated query to English: {query}")
         except Exception as e:
             logger.error(f"Failed to translate non-English query: {e}")
+    else:
+        logger.info(f"Skipping translation for language: {detected_lang}")
 
     filters = {
         "topics": request.topics,

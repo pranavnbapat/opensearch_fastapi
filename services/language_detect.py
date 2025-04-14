@@ -34,6 +34,7 @@ def detect_language(text: str) -> str:
     """Detect the language of a given text using langdetect and langid."""
     try:
         lang = langdetect_detect(text)
+        lang = lang.lower()
         logger.info(f"langdetect detected: {lang} for text: {text[:30]}...")
         return lang
     except Exception as e:
@@ -41,6 +42,7 @@ def detect_language(text: str) -> str:
 
     try:
         lang, _ = langid.classify(text)
+        lang = lang.lower()
         logger.info(f"langid detected: {lang} for text: {text[:30]}...")
         return lang
     except Exception as e:
