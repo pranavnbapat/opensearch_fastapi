@@ -1,12 +1,12 @@
 # app.py
 
 import datetime
-import time
+import os
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
 from starlette.middleware.cors import CORSMiddleware
@@ -210,25 +210,44 @@ app.add_middleware(
 
 
 @app.post("/neural_search_relevant")
-async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
-    """Search using only BM25 (multi_match) with filters."""
+async def neural_search_relevant_endpoint(request_temp: Request, request: RelevantSearchRequest):
     # if not request.search_term:
     #     raise HTTPException(status_code=400, detail="No search term provided")
+    expected_secret = os.getenv("CUST_SECRET")
+
+    if request.cust_secret != expected_secret:
+        logger.warning(f"Invalid or missing CUST_SECRET from IP {request_temp.client.host}")
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # client_host = request_temp.client.host
+    # user_agent = request_temp.headers.get("user-agent")
+    # referer = request_temp.headers.get("referer")
+    # origin = request_temp.headers.get("origin")
+    # full_url = str(request_temp.url)
+    #
+    # logger.info(f"Search request from IP: {client_host}")
+    # logger.info(f"User-Agent: {user_agent}")
+    # logger.info(f"Referer: {referer}")
+    # logger.info(f"Origin: {origin}")
+    # logger.info(f"Full request URL: {full_url}")
+
+    logger.info(
+        f"Search Query: '{request.search_term}', Semantic: {request.use_semantic}, Index: {'neural_search_index_dev' if request.dev else 'neural_search_index'}, Page: {max(request.page, 1)}")
 
     page_number = max(request.page, 1)
 
     query = request.search_term.strip()
-    detected_lang = detect_language(query)
+    # detected_lang = detect_language(query)
 
     # Translate if not English
-    if detected_lang != "en" and detected_lang.upper() in DEEPL_SUPPORTED_LANGUAGES:
-        try:
-            query = translate_text_with_backoff(query, target_language="EN")
-            logger.info(f"Translated query to English: {query}")
-        except Exception as e:
-            logger.error(f"Failed to translate non-English query: {e}")
-    else:
-        logger.info(f"Skipping translation for language: {detected_lang}")
+    # if detected_lang != "en" and detected_lang.upper() in DEEPL_SUPPORTED_LANGUAGES:
+    #     try:
+    #         query = translate_text_with_backoff(query, target_language="EN")
+    #         logger.info(f"Translated query to English: {query}")
+    #     except Exception as e:
+    #         logger.error(f"Failed to translate non-English query: {e}")
+    # else:
+    #     logger.info(f"Skipping translation for language: {detected_lang}")
 
     filters = {
         "topics": request.topics,
@@ -242,12 +261,19 @@ async def neural_search_relevant_endpoint(request: RelevantSearchRequest):
 
     index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
 
+    # Smart fallback to BM25 if query is short
+    if len(query.split()) <= 5:
+        logger.info("Short query detected, switching to BM25")
+        use_semantic = False
+    else:
+        use_semantic = True
+
     response = neural_search_relevant(
         index_name=index_name,
         query=query,
         filters=filters,
         page=page_number,
-        use_semantic=request.use_semantic
+        use_semantic=use_semantic
     )
 
     total_results = response["hits"]["total"]["value"]

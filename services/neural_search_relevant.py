@@ -19,6 +19,7 @@ class RelevantSearchRequest(BaseModel):
     page: Optional[int] = 1
     dev: Optional[bool] = False
     use_semantic: Optional[bool] = True
+    cust_secret: Optional[str] = None
 
 
 def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any], page: int, use_semantic: bool = True):
@@ -118,10 +119,12 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
             "multi_match": {
                 "query": filtered_query,
                 "fields": [
-                    "title^9",
-                    "content_pages^8",
-                    "summary^7",
-                    "keywords^6"
+                    "projectAcronym^9",
+                    "projectName^9",
+                    "title^8",
+                    "content_pages^7",
+                    "keywords^6",
+                    "summary^5"
                 ]
             }
         }
