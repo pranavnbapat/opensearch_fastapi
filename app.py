@@ -211,13 +211,11 @@ app.add_middleware(
 
 @app.post("/neural_search_relevant")
 async def neural_search_relevant_endpoint(request_temp: Request, request: RelevantSearchRequest):
-    # if not request.search_term:
-    #     raise HTTPException(status_code=400, detail="No search term provided")
-    expected_secret = os.getenv("CUST_SECRET")
-
-    if request.cust_secret != expected_secret:
-        logger.warning(f"Invalid or missing CUST_SECRET from IP {request_temp.client.host}")
-        raise HTTPException(status_code=403, detail="Forbidden")
+    # expected_secret = os.getenv("CUST_SECRET")
+    #
+    # if request.cust_secret != expected_secret:
+    #     logger.warning(f"Invalid or missing CUST_SECRET from IP {request_temp.client.host}")
+    #     raise HTTPException(status_code=403, detail="Forbidden")
 
     # client_host = request_temp.client.host
     # user_agent = request_temp.headers.get("user-agent")
