@@ -15,6 +15,7 @@ from starlette.middleware.cors import CORSMiddleware
 from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
 from services.opensearch_service import search_opensearch, client
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
+from services.project_search import project_search, ProjectSearchRequest
 # from services.neural_search_knn import neural_search_knn, KNNSearchRequest, MODEL_IDS_FOR_NS
 from services.validate_and_analyse_results import analyze_search_results
 from services.utils import lowercase_list, PAGE_SIZE
@@ -216,21 +217,23 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     # if request.cust_secret != expected_secret:
     #     logger.warning(f"Invalid or missing CUST_SECRET from IP {request_temp.client.host}")
     #     raise HTTPException(status_code=403, detail="Forbidden")
-
+    #
     # client_host = request_temp.client.host
     # user_agent = request_temp.headers.get("user-agent")
     # referer = request_temp.headers.get("referer")
     # origin = request_temp.headers.get("origin")
     # full_url = str(request_temp.url)
     #
+    # print("###############")
     # logger.info(f"Search request from IP: {client_host}")
     # logger.info(f"User-Agent: {user_agent}")
     # logger.info(f"Referer: {referer}")
     # logger.info(f"Origin: {origin}")
     # logger.info(f"Full request URL: {full_url}")
+    # print("\n\n")
 
-    logger.info(
-        f"Search Query: '{request.search_term}', Semantic: {request.use_semantic}, Index: {'neural_search_index_dev' if request.dev else 'neural_search_index'}, Page: {max(request.page, 1)}")
+    # logger.info(
+    #     f"Search Query: '{request.search_term}', Semantic: {request.use_semantic}, Index: {'neural_search_index_dev' if request.dev else 'neural_search_index'}, Page: {max(request.page, 1)}")
 
     page_number = max(request.page, 1)
 
@@ -278,6 +281,36 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
     results = response["hits"]["hits"]
 
+    #################### Code below lists top 3 projects from this page
+    # Build project aggregation from search results
+    project_counter = {}
+
+    for hit in results:
+        source = hit["_source"]
+        project_acronym = source.get("projectAcronym", "Unknown Acronym")
+
+        project_counter[project_acronym] = project_counter.get(project_acronym, 0) + 1
+
+    # Sort by count, descending
+    sorted_projects = sorted(project_counter.items(), key=lambda x: x[1], reverse=True)
+
+    # Take top 3 only
+    top_3_projects = sorted_projects[:3]
+    ####################
+
+    ##################### Code below lists top 3 projects from the entire resultset
+    aggregations = response.get("aggregations", {})
+    top_projects_buckets = aggregations.get("top_projects", {}).get("buckets", [])
+
+    related_projects_2 = []
+    for bucket in top_projects_buckets:
+        acronym = bucket["key"]
+        related_projects_2.append({
+            "project_acronym": acronym,
+            "count": bucket["doc_count"]
+        })
+    ####################
+
     # Perform Analysis on Search Results
     # analysis = analyze_search_results(results)
 
@@ -304,6 +337,14 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
 
     response_json = {
         "data": formatted_results,
+        "related_projects_from_this_page": [
+            {
+                "project_acronym": acronym,
+                "count": count
+            }
+            for acronym, count in top_3_projects
+        ],
+        "related_projects_from_entire_resultset": related_projects_2,
         "pagination": {
             "total_records": total_results,
             "current_page": page_number,
@@ -317,6 +358,47 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
 
     return response_json
 
+
+@app.post("/project_search")
+async def project_search_endpoint(request: ProjectSearchRequest):
+    query = request.search_term.strip()
+    page_number = max(request.page, 1)
+
+    if not query:
+        raise HTTPException(status_code=400, detail="Search term cannot be empty.")
+
+    index_name = "projects_index_dev" if request.dev else "projects_index"
+
+    response = project_search(
+        index_name=index_name,
+        query=query,
+        page=page_number
+    )
+
+    results = response["hits"]["hits"]
+    total_results = response["hits"]["total"]["value"]
+    total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
+
+    formatted = [
+        {
+            "_id": hit["_id"],
+            "_score": hit["_score"],
+            "projectName": hit["_source"].get("projectName", ""),
+            "projectAcronym": hit["_source"].get("projectAcronym", "")
+        }
+        for hit in results
+    ]
+
+    return {
+        "data": formatted,
+        "pagination": {
+            "total_records": total_results,
+            "current_page": page_number,
+            "total_pages": total_pages,
+            "next_page": page_number + 1 if page_number < total_pages else None,
+            "prev_page": page_number - 1 if page_number > 1 else None
+        }
+    }
 
 # @app.post("/neural_search_knn")
 # async def neural_search_knn_endpoint(request: KNNSearchRequest):

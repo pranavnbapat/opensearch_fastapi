@@ -1,4 +1,4 @@
-# neural_search_relevant.py
+# services/neural_search_relevant.py
 
 from typing import List, Optional, Dict, Any
 from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE
@@ -156,6 +156,15 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
             "bool": {
                 "must": query_part,
                 "filter": filter_conditions
+            }
+        },
+        "aggs": {
+            "top_projects": {
+                "terms": {
+                    "field": "projectAcronym",
+                    "size": 3,
+                    "order": { "_count": "desc" }
+                }
             }
         }
     }

@@ -1,5 +1,6 @@
 .venv
 .idea
+cron
 .env
 
 __pycache__/

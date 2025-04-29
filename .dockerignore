@@ -30,3 +30,5 @@ deploy.sh
 
 # Ignore model cache (if using a mounted volume for it)
 models_cache/
+
+cron/
