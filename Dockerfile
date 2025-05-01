@@ -18,9 +18,6 @@ RUN apt-get update && apt-get install -y \
 # Copy the rest of the project files
 COPY . .
 
-# Preload models during build (optional, if using a separate script)
-# RUN python preload_models.py
-
 # Expose FastAPI port
 EXPOSE 10000
 

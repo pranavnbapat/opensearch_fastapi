@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 from nltk.corpus import stopwords
 from opensearchpy import OpenSearch, RequestsHttpConnection
+from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
@@ -21,6 +22,8 @@ STOPWORDS = get_stopwords()
 K_VALUE = 10
 
 PAGE_SIZE = 10
+
+recomm_model = SentenceTransformer('distilbert-base-nli-stsb-mean-tokens')
 
 # Fetch OpenSearch credentials
 OPENSEARCH_API = os.getenv("OPENSEARCH_API")

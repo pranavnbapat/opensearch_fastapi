@@ -12,6 +12,7 @@ from starlette.middleware.cors import CORSMiddleware
 # from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
 from services.project_search import project_search, ProjectSearchRequest
+from services.recommender import recommend_similar, RecommenderRequest
 # from services.neural_search_knn import neural_search_knn, KNNSearchRequest, MODEL_IDS_FOR_NS
 # from services.validate_and_analyse_results import analyze_search_results
 from services.utils import PAGE_SIZE
@@ -216,6 +217,12 @@ async def project_search_endpoint(request: ProjectSearchRequest):
             "prev_page": page_number - 1 if page_number > 1 else None
         }
     }
+
+
+@app.post("/recommend")
+def recommend_endpoint(data: RecommenderRequest):
+    return recommend_similar(text=data.text, top_k=data.top_k)
+
 
 # @app.post("/neural_search_knn")
 # async def neural_search_knn_endpoint(request: KNNSearchRequest):
