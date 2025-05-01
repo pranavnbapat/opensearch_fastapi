@@ -15,27 +15,6 @@ RUN apt-get update && apt-get install -y \
     && pip install --no-cache-dir -r requirements.txt \
     && python -m nltk.downloader stopwords
 
-# Set environment variables for models
-#ENV MODEL_MPNET=sentence-transformers/all-mpnet-base-v2
-#ENV MODEL_MINILM=sentence-transformers/all-MiniLM-L6-v2
-#ENV MODEL_MXBAI=mixedbread-ai/mxbai-embed-large-v1
-#ENV MODEL_SENTENCE_T5=sentence-transformers/sentence-t5-base
-#ENV MODEL_MULTILINGUAL_E5=intfloat/multilingual-e5-large
-
-# Download FastText language model
-#RUN wget -O /app/lid.176.bin https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
-
-# Preload all models separately to cache them effectively
-# Ensure cache is cleared and models are reloaded
-#RUN rm -rf /root/.cache/huggingface/transformers && \
-#    python -c "from sentence_transformers import SentenceTransformer; \
-#        SentenceTransformer('${MODEL_MPNET}'); \
-#        SentenceTransformer('${MODEL_MINILM}'); \
-#        SentenceTransformer('${MODEL_MXBAI}'); \
-#        SentenceTransformer('${MODEL_SENTENCE_T5}'); \
-#        SentenceTransformer('${MODEL_MULTILINGUAL_E5}')"
-
-
 # Copy the rest of the project files
 COPY . .
 

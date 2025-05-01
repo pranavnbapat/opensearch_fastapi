@@ -3,8 +3,7 @@
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
-from services.opensearch_service import client
-from services.utils import PAGE_SIZE
+from services.utils import PAGE_SIZE, client
 
 class ProjectSearchRequest(BaseModel):
     search_term: str

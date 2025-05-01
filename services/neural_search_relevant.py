@@ -1,10 +1,10 @@
 # services/neural_search_relevant.py
 
-from typing import List, Optional, Dict, Any
-from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE
-from pydantic import BaseModel
-from services.opensearch_service import client
 import os
+
+from pydantic import BaseModel
+from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client
+from typing import List, Optional, Dict, Any
 
 
 class RelevantSearchRequest(BaseModel):
@@ -18,8 +18,6 @@ class RelevantSearchRequest(BaseModel):
     locations: Optional[List[str]] = None
     page: Optional[int] = 1
     dev: Optional[bool] = False
-    use_semantic: Optional[bool] = True
-    cust_secret: Optional[str] = None
 
 
 def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any], page: int, use_semantic: bool = True):
