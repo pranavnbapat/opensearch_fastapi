@@ -1,18 +1,15 @@
 # app.py
 
 import datetime
-import os
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
-from typing import List, Optional
 from starlette.middleware.cors import CORSMiddleware
 
 #from models.embedding import select_model, generate_vector, generate_vector_neural_search
-from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
+# from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
 from services.project_search import project_search, ProjectSearchRequest
 # from services.neural_search_knn import neural_search_knn, KNNSearchRequest, MODEL_IDS_FOR_NS
