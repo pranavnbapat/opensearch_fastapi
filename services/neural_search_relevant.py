@@ -3,7 +3,7 @@
 import os
 
 from pydantic import BaseModel
-from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client
+from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client, model_id
 from typing import List, Optional, Dict, Any
 
 
@@ -57,7 +57,6 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
         query_part = {"match_all": {}}  # Retrieve all documents
     elif use_semantic:
         # Neural semantic search
-        model_id = os.getenv("OPENSEARCH_MSMARCO_MODEL_ID", "LciGfZUBVa2ERaFSUEya")  # Fallback to default if not set
         query_part = {
             "bool": {
                 "should": [

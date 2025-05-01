@@ -13,6 +13,7 @@ from starlette.middleware.cors import CORSMiddleware
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
 from services.project_search import project_search, ProjectSearchRequest
 from services.recommender import recommend_similar, RecommenderRequest
+from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.neural_search_knn import neural_search_knn, KNNSearchRequest, MODEL_IDS_FOR_NS
 # from services.validate_and_analyse_results import analyze_search_results
 from services.utils import PAGE_SIZE
@@ -222,6 +223,79 @@ async def project_search_endpoint(request: ProjectSearchRequest):
 @app.post("/recommend")
 def recommend_endpoint(data: RecommenderRequest):
     return recommend_similar(text=data.text, top_k=data.top_k)
+
+
+@app.post("/hybrid_search_local")
+async def hybrid_search_local_endpoint(request: RelevantSearchRequest):
+    page_number = max(request.page, 1)
+    query = request.search_term.strip()
+
+    filters = {
+        "topics": request.topics,
+        "subtopics": request.subtopics,
+        "languages": request.languages,
+        "fileType": request.fileType,
+        "project_type": request.project_type,
+        "projectAcronym": request.projectAcronym,
+        "locations": request.locations
+    }
+
+    index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
+
+    result = hybrid_search_local(
+        index_name=index_name,
+        query=query,
+        filters=filters,
+        page=page_number
+    )
+
+    return {
+        "data": result["results"],
+        "pagination": {
+            "total_records": result["total"],
+            "current_page": result["page"],
+            "total_pages": result["total_pages"],
+            "next_page": result["page"] + 1 if result["page"] < result["total_pages"] else None,
+            "prev_page": result["page"] - 1 if result["page"] > 1 else None
+        }
+    }
+
+
+@app.post("/hybrid_search")
+async def hybrid_search_endpoint(request: RelevantSearchRequest):
+    page_number = max(request.page, 1)
+    query = request.search_term.strip()
+
+    filters = {
+        "topics": request.topics,
+        "subtopics": request.subtopics,
+        "languages": request.languages,
+        "fileType": request.fileType,
+        "project_type": request.project_type,
+        "projectAcronym": request.projectAcronym,
+        "locations": request.locations
+    }
+
+    index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
+
+    result = hybrid_search(
+        index_name=index_name,
+        query=query,
+        filters=filters,
+        page=page_number
+    )
+
+    return {
+        "data": result["results"],
+        "pagination": {
+            "total_records": result["total"],
+            "current_page": result["page"],
+            "total_pages": result["total_pages"],
+            "next_page": result["page"] + 1 if result["page"] < result["total_pages"] else None,
+            "prev_page": result["page"] - 1 if result["page"] > 1 else None
+        }
+    }
+
 
 
 # @app.post("/neural_search_knn")
