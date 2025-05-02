@@ -1,34 +1,32 @@
-# Ignore the virtual environment
+# Virtual environment
 .venv/
 
-# Ignore PyCharm and other IDE files
+# IDE settings
 .idea/
 
-# Ignore environment files (contains secrets)
+# Environment and secrets (prevent secrets from going into image)
 .env
 
-# Ignore Python cache files
+# Python cache and compiled files
 __pycache__/
-*.pyo
-*.pyd
+*.py[cod]
 
-# Ignore logs and compiled files
+# Logs, binaries, backups
 *.log
 *.bin
-
-# Ignore backup files
 *.bak
 
-# Ignore Docker-related files (if not needed inside the container)
+# Docker and Git config files (if not needed in the image)
 .dockerignore
 .gitignore
 docker-compose.yml
 deploy.sh
 
-# Ignore git repository data
+# Git repository data
 .git/
 
-# Ignore model cache (if using a mounted volume for it)
+# Model and temp directories
+models/
 models_cache/
-
 cron/
+temp/

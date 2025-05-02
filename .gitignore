@@ -1,11 +1,23 @@
-.venv
-.idea
-cron
+# Virtual environment
+.venv/
+
+# IDE settings
+.idea/
+
+# Environment and secrets
 .env
 
+# Python cache and compiled files
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+
+# Logs, binaries, backups
+*.log
 *.bin
 *.bak
+
+# Model and temp directories
+models/
+models_cache/
+cron/
+temp/
