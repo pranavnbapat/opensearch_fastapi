@@ -1,12 +1,17 @@
 # services/utils.py
 
+import base64
 import nltk
 import os
+import secrets
 
 from dotenv import load_dotenv
 from nltk.corpus import stopwords
 from opensearchpy import OpenSearch, RequestsHttpConnection
 from sentence_transformers import SentenceTransformer
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+from starlette.status import HTTP_401_UNAUTHORIZED
 
 load_dotenv()
 
@@ -31,6 +36,9 @@ model_id = os.getenv("OPENSEARCH_MSMARCO_MODEL_ID", "LciGfZUBVa2ERaFSUEya")  # F
 OPENSEARCH_API = os.getenv("OPENSEARCH_API")
 OPENSEARCH_USR = os.getenv("OPENSEARCH_USR")
 OPENSEARCH_PWD = os.getenv("OPENSEARCH_PWD")
+
+BASIC_AUTH_USER = os.getenv("BASIC_AUTH_USER")
+BASIC_AUTH_PASS = os.getenv("BASIC_AUTH_PASS")
 
 if not all([OPENSEARCH_API, OPENSEARCH_USR, OPENSEARCH_PWD]):
     raise EnvironmentError("Missing OpenSearch environment variables!")
@@ -83,3 +91,31 @@ def normalise_scores(hits):
 
     return hits
 
+
+class BasicAuthMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, username: str, password: str):
+        super().__init__(app)
+        self.username = username
+        self.password = password
+
+    async def dispatch(self, request, call_next):
+        auth = request.headers.get("Authorization")
+        if auth:
+            try:
+                scheme, credentials = auth.split()
+                if scheme.lower() == "basic":
+                    decoded = base64.b64decode(credentials).decode("utf-8")
+                    input_username, input_password = decoded.split(":", 1)
+
+                    # if input_username == self.username and input_password == self.password:
+                    if secrets.compare_digest(input_username, self.username) and secrets.compare_digest(
+                                input_password, self.password):
+                        return await call_next(request)
+            except Exception:
+                pass
+
+        return Response(
+            status_code=HTTP_401_UNAUTHORIZED,
+            headers={"WWW-Authenticate": "Basic"},
+            content="Unauthorized: Access is denied due to invalid credentials.",
+        )

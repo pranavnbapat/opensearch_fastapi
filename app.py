@@ -2,8 +2,6 @@
 
 import datetime
 import logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Request
 from starlette.middleware.cors import CORSMiddleware
@@ -16,9 +14,13 @@ from services.recommender import recommend_similar, RecommenderRequest
 from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.neural_search_knn import neural_search_knn, KNNSearchRequest, MODEL_IDS_FOR_NS
 # from services.validate_and_analyse_results import analyze_search_results
-from services.utils import PAGE_SIZE
+from services.utils import PAGE_SIZE, BasicAuthMiddleware, BASIC_AUTH_PASS, BASIC_AUTH_USER
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="OpenSearch API", version="1.0")
+app.add_middleware(BasicAuthMiddleware, username=BASIC_AUTH_USER, password=BASIC_AUTH_PASS)
 
 origins = [
     "http://127.0.0.1:8000",
