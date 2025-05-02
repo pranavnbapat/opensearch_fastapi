@@ -1,7 +1,5 @@
 # services/neural_search_relevant.py
 
-import os
-
 from pydantic import BaseModel
 from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client, model_id
 from typing import List, Optional, Dict, Any

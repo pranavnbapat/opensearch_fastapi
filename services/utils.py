@@ -2,10 +2,12 @@
 
 import base64
 import nltk
+import numpy as np
 import os
 import secrets
 
 from dotenv import load_dotenv
+from functools import lru_cache
 from nltk.corpus import stopwords
 from opensearchpy import OpenSearch, RequestsHttpConnection
 from sentence_transformers import SentenceTransformer
@@ -119,3 +121,46 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             headers={"WWW-Authenticate": "Basic"},
             content="Unauthorized: Access is denied due to invalid credentials.",
         )
+
+
+def knn_search_on_field(field: str, query_vector: list, index_name: str, filters: list, k: int = 10):
+    return client.search(index=index_name, body={
+        "_source": {
+            "excludes": [
+                "title_embedding", "summary_embedding", "keywords_embedding", "topics_embedding", "content_embedding",
+                "project_embedding", "project_acronym_embedding", "content_embedding_input", "topics_embedding_input",
+                "keywords_embedding_input", "content_pages", "_orig_id"
+            ]
+        },
+        "track_total_hits": False,
+        "size": k,
+        "query": {
+            "bool": {
+                "filter": filters
+            }
+        },
+        "knn": {
+            field: {
+                "vector": query_vector,
+                "k": k
+            }
+        }
+    })["hits"]["hits"]
+
+
+@lru_cache(maxsize=5)  # Cache up to 5 models
+def get_model(name: str):
+    return SentenceTransformer(name)
+
+
+def generate_vector_neural_search(model, query: str):
+    """Generate vector embeddings for the given query."""
+    vector = model.encode(query)
+
+    if isinstance(vector, np.ndarray):
+        vector = vector.tolist()
+
+    if not all(isinstance(v, (float, int)) for v in vector):
+        raise ValueError(f"Invalid query vector format! Expected list of floats, got: {vector}")
+
+    return vector
