@@ -36,7 +36,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/neural_search_relevant")
+@app.post("/neural_search_relevant", tags=["Search"],
+          summary="Context-aware neural search with smart fallback",
+          description="Performs relevance-based search using semantic embedding models (e.g. DistilBERT/MS MARCO) "
+                      "to retrieve and rank documents based on contextual similarity to the input query. Automatically "
+                      "falls back to BM25 keyword search for short or ambiguous queries. Also includes topic-based "
+                      "filtering and project aggregation for enhanced insight.")
 async def neural_search_relevant_endpoint(request_temp: Request, request: RelevantSearchRequest):
     # client_host = request_temp.client.host
     # user_agent = request_temp.headers.get("user-agent")
@@ -179,7 +184,11 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     return response_json
 
 
-@app.post("/project_search")
+@app.post("/project_search", tags=["Project Search"],
+          summary="Simple keyword-based project search",
+          description="Performs a straightforward keyword search over indexed project documents using BM25 scoring. "
+                      "Supports pagination and basic project metadata retrieval, such as project name and acronym. "
+                      "Best used when searching by known keywords, acronyms, or exact terms.")
 async def project_search_endpoint(request: ProjectSearchRequest):
     query = request.search_term.strip()
     page_number = max(request.page, 1)
@@ -221,17 +230,31 @@ async def project_search_endpoint(request: ProjectSearchRequest):
     }
 
 
-@app.post("/recommend")
+@app.post("/recommend", tags=["Recommender System"],
+          summary="Vector-based content recommender",
+          description="Returns top-k most similar knowledge objects using vector similarity search. Embeddings are "
+                      "generated from textual metadata (title, summary, keywords, topics, etc.) and stored in "
+                      "OpenSearch. Recommendations are retrieved using KNN search over pre-computed embeddings.")
 def recommend_endpoint(data: RecommenderRequest):
     return recommend_similar(text=data.text, top_k=data.top_k)
 
 
-@app.post("/recommend_cos")
+@app.post("/recommend_cos", tags=["Recommender System"],
+          summary="Recommender with cosine similarity reranking",
+          description="Improves recommendation quality by reranking OpenSearch results using cosine similarity. "
+                      "First retrieves a larger set of candidates via KNN, then ranks them locally using a "
+                      "transformer-based embedding model to return the most semantically similar items. "
+                      "Best used when precision matters.")
 def recommend_cos_endpoint(data: RecommenderRequest):
     return recommend_similar_cos(text=data.text, top_k=data.top_k)
 
 
-@app.post("/hybrid_search_local")
+@app.post("/hybrid_search_local", tags=["Hybrid Search"],
+          summary="Hybrid search with local reranking",
+          description="Performs hybrid search by retrieving results using BM25 keyword matching, then reranks them "
+                      "locally using cosine similarity with a transformer model (MS MARCO DistilBERT). This ensures "
+                      "high recall with precise semantic ranking, ideal for longer queries with domain-specific "
+                      "context.")
 async def hybrid_search_local_endpoint(request: RelevantSearchRequest):
     page_number = max(request.page, 1)
     query = request.search_term.strip()
@@ -267,7 +290,12 @@ async def hybrid_search_local_endpoint(request: RelevantSearchRequest):
     }
 
 
-@app.post("/hybrid_search")
+@app.post("/hybrid_search", tags=["Hybrid Search"],
+          summary="Hybrid search using OpenSearch BM25 + neural",
+          description= "Performs hybrid search using OpenSearch's built-in support for combining lexical (BM25) and "
+                       "semantic (neural) search in a single query. This server-side hybrid scoring retrieves "
+                       "contextually relevant documents based on both exact keyword matches and semantic understanding "
+                       "of the query.")
 async def hybrid_search_endpoint(request: RelevantSearchRequest):
     page_number = max(request.page, 1)
     query = request.search_term.strip()
