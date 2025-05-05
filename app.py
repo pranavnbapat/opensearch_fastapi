@@ -9,9 +9,8 @@ from starlette.middleware.cors import CORSMiddleware
 #from models.embedding import select_model, generate_vector, generate_vector_neural_search
 # from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
-from services.neural_search_knn import neural_search_knn, KNNSearchRequest
 from services.project_search import project_search, ProjectSearchRequest
-from services.recommender import recommend_similar, RecommenderRequest
+from services.recommender import recommend_similar, RecommenderRequest, recommend_similar_cos
 from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.validate_and_analyse_results import analyze_search_results
 from services.utils import PAGE_SIZE, BasicAuthMiddleware, BASIC_AUTH_PASS, BASIC_AUTH_USER
@@ -227,6 +226,11 @@ def recommend_endpoint(data: RecommenderRequest):
     return recommend_similar(text=data.text, top_k=data.top_k)
 
 
+@app.post("/recommend_cos")
+def recommend_cos_endpoint(data: RecommenderRequest):
+    return recommend_similar_cos(text=data.text, top_k=data.top_k)
+
+
 @app.post("/hybrid_search_local")
 async def hybrid_search_local_endpoint(request: RelevantSearchRequest):
     page_number = max(request.page, 1)
@@ -297,35 +301,3 @@ async def hybrid_search_endpoint(request: RelevantSearchRequest):
             "prev_page": result["page"] - 1 if result["page"] > 1 else None
         }
     }
-
-
-
-# @app.post("/neural_search_knn")
-# async def neural_search_knn_endpoint(request: KNNSearchRequest):
-#     page_number = max(request.page, 1)
-#     query = request.search_term.strip()
-#
-#     filters = {
-#         "topics": request.topics,
-#         "subtopics": request.subtopics,
-#         "languages": request.languages,
-#         "fileType": request.fileType,
-#         "project_type": request.project_type,
-#         "projectAcronym": request.projectAcronym,
-#         "locations": request.locations
-#     }
-#
-#     index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
-#
-#     try:
-#         response = neural_search_knn(
-#             index_name=index_name,
-#             query=query,
-#             filters=filters,
-#             page=page_number
-#         )
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-#
-#     return response
-
