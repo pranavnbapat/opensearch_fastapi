@@ -38,10 +38,11 @@ app.add_middleware(
 
 @app.post("/neural_search_relevant", tags=["Search"],
           summary="Context-aware neural search with smart fallback",
-          description="Performs relevance-based search using semantic embedding models (e.g. DistilBERT/MS MARCO) "
-                      "to retrieve and rank documents based on contextual similarity to the input query. Automatically "
-                      "falls back to BM25 keyword search for short or ambiguous queries. Also includes topic-based "
-                      "filtering and project aggregation for enhanced insight.")
+          description="Performs relevance-based search using semantic embedding models to retrieve and rank documents "
+                      "based on contextual similarity to the input query. Automatically falls back to BM25 keyword "
+                      "search for short or ambiguous queries. Also includes topic-based filtering and project "
+                      "aggregation for enhanced insight. You can optionally pass 'k' to get only the top-k ranked "
+                      "results (no pagination).")
 async def neural_search_relevant_endpoint(request_temp: Request, request: RelevantSearchRequest):
     # client_host = request_temp.client.host
     # user_agent = request_temp.headers.get("user-agent")
@@ -160,6 +161,25 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         flattened_result = {"_id": hit["_id"], "_score": hit["_score"], **source}
         formatted_results.append(flattened_result)
 
+    # If k is provided, override pagination and return top-k only
+    if request.k is not None and request.k > 0:
+        formatted_results = formatted_results[:request.k]
+        pagination = {
+            "total_records": len(formatted_results),
+            "current_page": 1,
+            "total_pages": 1,
+            "next_page": None,
+            "prev_page": None
+        }
+    else:
+        pagination = {
+            "total_records": total_results,
+            "current_page": page_number,
+            "total_pages": total_pages,
+            "next_page": page_number + 1 if page_number < total_pages else None,
+            "prev_page": page_number - 1 if page_number > 1 else None
+        }
+
     response_json = {
         "data": formatted_results,
         "related_projects_from_this_page": [
@@ -170,13 +190,7 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
             for acronym, count in top_3_projects
         ],
         "related_projects_from_entire_resultset": related_projects_2,
-        "pagination": {
-            "total_records": total_results,
-            "current_page": page_number,
-            "total_pages": total_pages,
-            "next_page": page_number + 1 if page_number < total_pages else None,
-            "prev_page": page_number - 1 if page_number > 1 else None
-        }
+        "pagination": pagination
     }
 
     logger.info(f"Search Query: '{query}', Semantic: {use_semantic}, Index: {index_name}, Page: {page_number}")

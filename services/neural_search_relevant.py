@@ -16,6 +16,7 @@ class RelevantSearchRequest(BaseModel):
     locations: Optional[List[str]] = None
     page: Optional[int] = 1
     dev: Optional[bool] = False
+    k: Optional[int] = None
 
 
 def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any], page: int, use_semantic: bool = True):
