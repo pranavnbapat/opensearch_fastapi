@@ -113,9 +113,9 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
 
     for hit in results:
         source = hit["_source"]
-        project_acronym = source.get("projectAcronym", "Unknown Acronym")
+        project_id = source.get("project_id", "Unknown ID")
 
-        project_counter[project_acronym] = project_counter.get(project_acronym, 0) + 1
+        project_counter[project_id] = project_counter.get(project_id, 0) + 1
 
     # Sort by count, descending
     sorted_projects = sorted(project_counter.items(), key=lambda x: x[1], reverse=True)
@@ -132,7 +132,7 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     for bucket in top_projects_buckets:
         acronym = bucket["key"]
         related_projects_2.append({
-            "project_acronym": acronym,
+            "project_id": acronym,
             "count": bucket["doc_count"]
         })
     ####################
@@ -184,10 +184,10 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         "data": formatted_results,
         "related_projects_from_this_page": [
             {
-                "project_acronym": acronym,
+                "project_id": pid,
                 "count": count
             }
-            for acronym, count in top_3_projects
+            for pid, count in top_3_projects
         ],
         "related_projects_from_entire_resultset": related_projects_2,
         "pagination": pagination

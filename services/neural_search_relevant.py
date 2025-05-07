@@ -141,6 +141,8 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                 "topics_embedding_input",
                 "keywords_embedding_input",
                 "content_pages",
+                "content_pages_token_counts",
+                "projectURL",
                 "_orig_id",
             ]
         },
@@ -157,7 +159,7 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
         "aggs": {
             "top_projects": {
                 "terms": {
-                    "field": "projectAcronym",
+                    "field": "project_id",
                     "size": 3,
                     "order": { "_count": "desc" }
                 }
