@@ -9,10 +9,11 @@ COPY requirements.txt .
 
 # Install system dependencies, upgrade pip, install Python packages, download NLTK stopwords
 RUN apt-get update && apt-get install -y \
-    g++ cmake libffi-dev libssl-dev wget \
+    g++ cmake libffi-dev libssl-dev wget nano \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir 'huggingface_hub[hf_xet]' \
     && python -m nltk.downloader stopwords
 
 # Copy the rest of the project files
