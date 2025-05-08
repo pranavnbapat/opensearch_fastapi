@@ -198,50 +198,50 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     return response_json
 
 
-@app.post("/project_search", tags=["Project Search"],
-          summary="Simple keyword-based project search",
-          description="Performs a straightforward keyword search over indexed project documents using BM25 scoring. "
-                      "Supports pagination and basic project metadata retrieval, such as project name and acronym. "
-                      "Best used when searching by known keywords, acronyms, or exact terms.")
-async def project_search_endpoint(request: ProjectSearchRequest):
-    query = request.search_term.strip()
-    page_number = max(request.page, 1)
-
-    if not query:
-        raise HTTPException(status_code=400, detail="Search term cannot be empty.")
-
-    index_name = "projects_index_dev" if request.dev else "projects_index"
-
-    response = project_search(
-        index_name=index_name,
-        query=query,
-        page=page_number
-    )
-
-    results = response["hits"]["hits"]
-    total_results = response["hits"]["total"]["value"]
-    total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
-
-    formatted = [
-        {
-            "_id": hit["_id"],
-            "_score": hit["_score"],
-            "projectName": hit["_source"].get("projectName", ""),
-            "projectAcronym": hit["_source"].get("projectAcronym", "")
-        }
-        for hit in results
-    ]
-
-    return {
-        "data": formatted,
-        "pagination": {
-            "total_records": total_results,
-            "current_page": page_number,
-            "total_pages": total_pages,
-            "next_page": page_number + 1 if page_number < total_pages else None,
-            "prev_page": page_number - 1 if page_number > 1 else None
-        }
-    }
+# @app.post("/project_search", tags=["Project Search"],
+#           summary="Simple keyword-based project search",
+#           description="Performs a straightforward keyword search over indexed project documents using BM25 scoring. "
+#                       "Supports pagination and basic project metadata retrieval, such as project name and acronym. "
+#                       "Best used when searching by known keywords, acronyms, or exact terms.")
+# async def project_search_endpoint(request: ProjectSearchRequest):
+#     query = request.search_term.strip()
+#     page_number = max(request.page, 1)
+#
+#     if not query:
+#         raise HTTPException(status_code=400, detail="Search term cannot be empty.")
+#
+#     index_name = "projects_index_dev" if request.dev else "projects_index"
+#
+#     response = project_search(
+#         index_name=index_name,
+#         query=query,
+#         page=page_number
+#     )
+#
+#     results = response["hits"]["hits"]
+#     total_results = response["hits"]["total"]["value"]
+#     total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
+#
+#     formatted = [
+#         {
+#             "_id": hit["_id"],
+#             "_score": hit["_score"],
+#             "projectName": hit["_source"].get("projectName", ""),
+#             "projectAcronym": hit["_source"].get("projectAcronym", "")
+#         }
+#         for hit in results
+#     ]
+#
+#     return {
+#         "data": formatted,
+#         "pagination": {
+#             "total_records": total_results,
+#             "current_page": page_number,
+#             "total_pages": total_pages,
+#             "next_page": page_number + 1 if page_number < total_pages else None,
+#             "prev_page": page_number - 1 if page_number > 1 else None
+#         }
+#     }
 
 
 @app.post("/recommend", tags=["Recommender System"],

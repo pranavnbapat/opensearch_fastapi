@@ -21,6 +21,7 @@ __pycache__/
 .gitignore
 docker-compose.yml
 deploy.sh
+Dockerfile
 
 # Git repository data
 .git/
