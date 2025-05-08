@@ -30,9 +30,18 @@ K_VALUE = 10
 
 PAGE_SIZE = 10
 
-recomm_model = SentenceTransformer('distilbert-base-nli-stsb-mean-tokens')
+# recomm_model = SentenceTransformer('distilbert-base-nli-stsb-mean-tokens')
+# recomm_sys_model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
 
-model_id = os.getenv("OPENSEARCH_MSMARCO_MODEL_ID", "LciGfZUBVa2ERaFSUEya")  # Fallback to default if not set
+RECOMM_SYS_SUPPORTED_MODELS = {
+    "mpnet": "sentence-transformers/all-mpnet-base-v2",
+    "minilm": "sentence-transformers/all-MiniLM-L6-v2",
+    "e5": "intfloat/e5-base",
+    "bge": "BAAI/bge-base-en-v1.5",
+    "distilbert": "distilbert-base-nli-stsb-mean-tokens",
+}
+
+model_id = os.getenv("OPENSEARCH_MSMARCO_MODEL_ID", "qkNFrJYBHcnfto01QW83")  # Fallback to default if not set
 
 # Fetch OpenSearch credentials
 OPENSEARCH_API = os.getenv("OPENSEARCH_API")
@@ -164,3 +173,14 @@ def generate_vector_neural_search(model, query: str):
         raise ValueError(f"Invalid query vector format! Expected list of floats, got: {vector}")
 
     return vector
+
+
+
+_model_cache = {}
+
+def get_recomm_sys_model(model_key: str) -> SentenceTransformer:
+    if model_key not in RECOMM_SYS_SUPPORTED_MODELS:
+        raise ValueError(f"Unsupported model: {model_key}. Choose from: {list(RECOMM_SYS_SUPPORTED_MODELS)}")
+    if model_key not in _model_cache:
+        _model_cache[model_key] = SentenceTransformer(RECOMM_SYS_SUPPORTED_MODELS[model_key])
+    return _model_cache[model_key]

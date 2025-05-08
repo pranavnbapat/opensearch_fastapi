@@ -248,9 +248,10 @@ async def project_search_endpoint(request: ProjectSearchRequest):
           summary="Vector-based content recommender",
           description="Returns top-k most similar knowledge objects using vector similarity search. Embeddings are "
                       "generated from textual metadata (title, summary, keywords, topics, etc.) and stored in "
-                      "OpenSearch. Recommendations are retrieved using KNN search over pre-computed embeddings.")
+                      "OpenSearch. Recommendations are retrieved using KNN search over pre-computed embeddings." 
+                      "Models supported: mpnet, minilm, e5, bge, distilbert.")
 def recommend_endpoint(data: RecommenderRequest):
-    return recommend_similar(text=data.text, top_k=data.top_k)
+    return recommend_similar(text=data.text, top_k=data.top_k, model_name=data.model_name)
 
 
 @app.post("/recommend_cos", tags=["Recommender System"],
@@ -258,9 +259,10 @@ def recommend_endpoint(data: RecommenderRequest):
           description="Improves recommendation quality by reranking OpenSearch results using cosine similarity. "
                       "First retrieves a larger set of candidates via KNN, then ranks them locally using a "
                       "transformer-based embedding model to return the most semantically similar items. "
-                      "Best used when precision matters.")
+                      "Best used when precision matters. "
+                      "Models supported: mpnet, minilm, e5, bge, distilbert.")
 def recommend_cos_endpoint(data: RecommenderRequest):
-    return recommend_similar_cos(text=data.text, top_k=data.top_k)
+    return recommend_similar_cos(text=data.text, top_k=data.top_k, model_name=data.model_name)
 
 
 @app.post("/hybrid_search_local", tags=["Hybrid Search"],
