@@ -3,13 +3,13 @@
 import datetime
 import logging
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
 
 #from models.embedding import select_model, generate_vector, generate_vector_neural_search
 # from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
-from services.project_search import project_search, ProjectSearchRequest
+# from services.project_search import project_search, ProjectSearchRequest
 from services.recommender import recommend_similar, RecommenderRequest, recommend_similar_cos
 from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.validate_and_analyse_results import analyze_search_results
