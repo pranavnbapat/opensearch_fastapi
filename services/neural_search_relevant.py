@@ -1,7 +1,7 @@
 # services/neural_search_relevant.py
 
 from pydantic import BaseModel
-from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client, model_id
+from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client
 from typing import List, Optional, Dict, Any
 
 
@@ -17,9 +17,11 @@ class RelevantSearchRequest(BaseModel):
     page: Optional[int] = 1
     dev: Optional[bool] = False
     k: Optional[int] = None
+    model: Optional[str] = "msmarco"
 
 
-def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any], page: int, use_semantic: bool = True):
+def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any], page: int, model_id: str,
+                           use_semantic: bool = True,):
 # def neural_search_relevant(index_name, query, filters, page):
     """
     Perform semantic or BM25-based neural search against OpenSearch.

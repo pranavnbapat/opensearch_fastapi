@@ -13,7 +13,7 @@ from services.neural_search_relevant import neural_search_relevant, RelevantSear
 from services.recommender import recommend_similar, RecommenderRequest, recommend_similar_cos
 from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.validate_and_analyse_results import analyze_search_results
-from services.utils import PAGE_SIZE, BasicAuthMiddleware, BASIC_AUTH_PASS, BASIC_AUTH_USER
+from services.utils import PAGE_SIZE, BasicAuthMiddleware, BASIC_AUTH_PASS, BASIC_AUTH_USER, MODEL_CONFIG
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         "locations": request.locations
     }
 
-    index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
+    # index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
 
     # Smart fallback to BM25 if query is short
     if len(query.split()) <= 5:
@@ -95,11 +95,17 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     else:
         use_semantic = True
 
+    model_key = request.model.lower().strip() if request.model else "msmarco"
+    model_config = MODEL_CONFIG.get(model_key, MODEL_CONFIG["msmarco"])
+    index_name = model_config["index"]
+    model_id = model_config["model_id"]
+
     response = neural_search_relevant(
         index_name=index_name,
         query=query,
         filters=filters,
         page=page_number,
+        model_id=model_id,
         use_semantic=use_semantic
     )
 
@@ -285,13 +291,19 @@ async def hybrid_search_local_endpoint(request: RelevantSearchRequest):
         "locations": request.locations
     }
 
-    index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
+    # index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
+
+    model_key = request.model.lower().strip() if request.model else "msmarco"
+    model_config = MODEL_CONFIG.get(model_key, MODEL_CONFIG["msmarco"])
+    index_name = model_config["index"]
+    model_id = model_config["model_id"]
 
     result = hybrid_search_local(
         index_name=index_name,
         query=query,
         filters=filters,
-        page=page_number
+        page=page_number,
+        model_id=model_id
     )
 
     return {
@@ -326,13 +338,19 @@ async def hybrid_search_endpoint(request: RelevantSearchRequest):
         "locations": request.locations
     }
 
-    index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
+    # index_name = "neural_search_index_dev" if request.dev else "neural_search_index"
+
+    model_key = request.model.lower().strip() if request.model else "msmarco"
+    model_config = MODEL_CONFIG.get(model_key, MODEL_CONFIG["msmarco"])
+    index_name = model_config["index"]
+    model_id = model_config["model_id"]
 
     result = hybrid_search(
         index_name=index_name,
         query=query,
         filters=filters,
-        page=page_number
+        page=page_number,
+        model_id=model_id
     )
 
     return {

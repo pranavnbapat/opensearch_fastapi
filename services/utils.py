@@ -41,7 +41,22 @@ RECOMM_SYS_SUPPORTED_MODELS = {
     "distilbert": "distilbert-base-nli-stsb-mean-tokens",
 }
 
-model_id = os.getenv("OPENSEARCH_MSMARCO_MODEL_ID", "qkNFrJYBHcnfto01QW83")  # Fallback to default if not set
+MODEL_CONFIG = {
+    "minilml12v2": {
+        "index": "neural_search_index_minilml12v2",
+        "model_id": "nabLu5YBflT08yLW0hsI"
+    },
+    "mpnetv2": {
+        "index": "neural_search_index_mpnetv2",
+        "model_id": "VfYasJYBO4HQYgJp9pB7"
+    },
+    "msmarco": {
+        "index": "neural_search_index_msmarco_distilbert",
+        "model_id": "Vvbwu5YBO4HQYgJpFZCZ"
+    }
+}
+
+model_id = os.getenv("OPENSEARCH_MSMARCO_MODEL_ID", "Vvbwu5YBO4HQYgJpFZCZ")  # Fallback to default if not set
 
 # Fetch OpenSearch credentials
 OPENSEARCH_API = os.getenv("OPENSEARCH_API")

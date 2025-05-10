@@ -4,11 +4,11 @@ import datetime
 import torch
 
 from sentence_transformers import SentenceTransformer, util
-from services.utils import PAGE_SIZE, remove_stopwords_from_query, lowercase_list, client, model_id, normalise_scores
+from services.utils import (PAGE_SIZE, remove_stopwords_from_query, lowercase_list, client, normalise_scores)
 
 rerank_model = SentenceTransformer("sentence-transformers/msmarco-distilbert-base-tas-b")
 
-def hybrid_search_local(index_name: str, query: str, filters: dict, page: int):
+def hybrid_search_local(index_name: str, query: str, filters: dict, page: int, model_id: str):
     from_offset = 0
     rerank_limit = 100  # Number of docs to rerank
 
@@ -114,7 +114,7 @@ def hybrid_search_local(index_name: str, query: str, filters: dict, page: int):
     }
 
 
-def hybrid_search(index_name: str, query: str, filters: dict, page: int):
+def hybrid_search(index_name: str, query: str, filters: dict, page: int, model_id: str):
     from_offset = (page - 1) * PAGE_SIZE
     filtered_query = remove_stopwords_from_query(query)
 
