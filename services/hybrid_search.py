@@ -7,10 +7,18 @@ from sentence_transformers import SentenceTransformer, util
 from services.utils import (PAGE_SIZE, remove_stopwords_from_query, lowercase_list, client, normalise_scores)
 
 rerank_model = SentenceTransformer("sentence-transformers/msmarco-distilbert-base-tas-b")
+LOCAL_MODEL_PATHS = {
+    "msmarco": "sentence-transformers/msmarco-distilbert-base-tas-b",
+    "mpnetv2": "sentence-transformers/all-mpnet-base-v2",
+    "minilml12v2": "sentence-transformers/all-MiniLM-L12-v2"
+}
 
-def hybrid_search_local(index_name: str, query: str, filters: dict, page: int, model_id: str):
+def hybrid_search_local(index_name: str, query: str, filters: dict, page: int, model_key: str):
     from_offset = 0
     rerank_limit = 100  # Number of docs to rerank
+
+    rerank_model_path = LOCAL_MODEL_PATHS.get(model_key, LOCAL_MODEL_PATHS["msmarco"])
+    rerank_model = SentenceTransformer(rerank_model_path)
 
     # Build filter conditions
     filter_conditions = []

@@ -38,11 +38,13 @@ app.add_middleware(
 
 @app.post("/neural_search_relevant", tags=["Search"],
           summary="Context-aware neural search with smart fallback",
-          description="Performs relevance-based search using semantic embedding models to retrieve and rank documents "
-                      "based on contextual similarity to the input query. Automatically falls back to BM25 keyword "
-                      "search for short or ambiguous queries. Also includes topic-based filtering and project "
-                      "aggregation for enhanced insight. You can optionally pass 'k' to get only the top-k ranked "
-                      "results (no pagination).")
+          description="""Performs semantic relevance-based search using one of the supported models and retrieves 
+          contextually matched documents. Supported semantic models:
+          - `msmarco` (default)
+          - `mpnetv2`
+          - `minilml12v2`
+          You can optionally pass `model` (default is `msmarco`) and `k` to get only the top-k ranked results 
+          (no pagination).""")
 async def neural_search_relevant_endpoint(request_temp: Request, request: RelevantSearchRequest):
     # client_host = request_temp.client.host
     # user_agent = request_temp.headers.get("user-agent")
@@ -272,11 +274,14 @@ def recommend_cos_endpoint(data: RecommenderRequest):
 
 
 @app.post("/hybrid_search_local", tags=["Hybrid Search"],
-          summary="Hybrid search with local reranking",
-          description="Performs hybrid search by retrieving results using BM25 keyword matching, then reranks them "
-                      "locally using cosine similarity with a transformer model (MS MARCO DistilBERT). This ensures "
-                      "high recall with precise semantic ranking, ideal for longer queries with domain-specific "
-                      "context.")
+          summary="Hybrid search with local reranking (MiniLM, MPNet, MS MARCO)",
+          description="""Performs hybrid search by retrieving results using BM25 keyword matching, then reranks them 
+          locally using cosine similarity with a transformer model. You can choose from the following reranking models:
+          - `msmarco` (default)
+          - `mpnetv2`
+          - `minilml12v2`
+          These models rerank top BM25 candidates based on semantic similarity. If no model is specified, 
+          MS MARCO is used by default.""")
 async def hybrid_search_local_endpoint(request: RelevantSearchRequest):
     page_number = max(request.page, 1)
     query = request.search_term.strip()
@@ -296,14 +301,13 @@ async def hybrid_search_local_endpoint(request: RelevantSearchRequest):
     model_key = request.model.lower().strip() if request.model else "msmarco"
     model_config = MODEL_CONFIG.get(model_key, MODEL_CONFIG["msmarco"])
     index_name = model_config["index"]
-    model_id = model_config["model_id"]
 
     result = hybrid_search_local(
         index_name=index_name,
         query=query,
         filters=filters,
         page=page_number,
-        model_id=model_id
+        model_key=model_key
     )
 
     return {
@@ -320,10 +324,14 @@ async def hybrid_search_local_endpoint(request: RelevantSearchRequest):
 
 @app.post("/hybrid_search", tags=["Hybrid Search"],
           summary="Hybrid search using OpenSearch BM25 + neural",
-          description= "Performs hybrid search using OpenSearch's built-in support for combining lexical (BM25) and "
-                       "semantic (neural) search in a single query. This server-side hybrid scoring retrieves "
-                       "contextually relevant documents based on both exact keyword matches and semantic understanding "
-                       "of the query.")
+          description="""Performs hybrid search using OpenSearch's built-in hybrid scoring mechanism that combines BM25 
+          (lexical keyword match) with neural semantic similarity.
+          You can select one of the following semantic embedding models:
+          - `msmarco` (default)
+          - `mpnetv2`
+          - `minilml12v2`
+          If no model is specified in the request, the system defaults to MS MARCO.
+          """)
 async def hybrid_search_endpoint(request: RelevantSearchRequest):
     page_number = max(request.page, 1)
     query = request.search_term.strip()
