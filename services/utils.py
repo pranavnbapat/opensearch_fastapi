@@ -4,8 +4,8 @@ import base64
 import nltk
 import numpy as np
 import os
-import secrets
 
+from datetime import datetime
 from dotenv import load_dotenv
 from functools import lru_cache
 from nltk.corpus import stopwords
@@ -13,7 +13,9 @@ from opensearchpy import OpenSearch, RequestsHttpConnection
 from sentence_transformers import SentenceTransformer
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+from starlette.requests import Request
 from starlette.status import HTTP_401_UNAUTHORIZED
+from typing import Dict, Any
 
 load_dotenv()
 
@@ -83,6 +85,39 @@ client = OpenSearch(
 )
 
 
+class MultiUserTimedAuthMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, users: dict):
+        super().__init__(app)
+        self.users = users
+
+    async def dispatch(self, request: Request, call_next):
+        auth = request.headers.get("Authorization")
+        if not auth or not auth.startswith("Basic "):
+            return Response(status_code=HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Basic"},
+                            content="Auth required")
+
+        try:
+            encoded = auth.split(" ")[1]
+            decoded = base64.b64decode(encoded).decode("utf-8")
+            username, password = decoded.split(":", 1)
+        except Exception:
+            return Response(status_code=HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Basic"},
+                            content="Invalid auth")
+
+        user = self.users.get(username)
+        if not user or user["password"] != password:
+            return Response(status_code=HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Basic"},
+                            content="Invalid credentials")
+
+        # Time-based access restriction
+        expires = user.get("expires")
+        if expires and datetime.now() > expires:
+            return Response(status_code=HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Basic"},
+                            content="Access expired")
+
+        return await call_next(request)
+
+
 # Convert all filters to lowercase to match OpenSearch indexing
 def lowercase_list(values):
     return [v.lower() for v in values] if values else []
@@ -116,35 +151,6 @@ def normalise_scores(hits):
             hit["_score_normalised"] = 0.0  # this can be adjusted if needed
 
     return hits
-
-
-class BasicAuthMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, username: str, password: str):
-        super().__init__(app)
-        self.username = username
-        self.password = password
-
-    async def dispatch(self, request, call_next):
-        auth = request.headers.get("Authorization")
-        if auth:
-            try:
-                scheme, credentials = auth.split()
-                if scheme.lower() == "basic":
-                    decoded = base64.b64decode(credentials).decode("utf-8")
-                    input_username, input_password = decoded.split(":", 1)
-
-                    # if input_username == self.username and input_password == self.password:
-                    if secrets.compare_digest(input_username, self.username) and secrets.compare_digest(
-                                input_password, self.password):
-                        return await call_next(request)
-            except Exception:
-                pass
-
-        return Response(
-            status_code=HTTP_401_UNAUTHORIZED,
-            headers={"WWW-Authenticate": "Basic"},
-            content="Unauthorized: Access is denied due to invalid credentials.",
-        )
 
 
 def knn_search_on_field(field: str, query_vector: list, index_name: str, filters: list, k: int = 10):
@@ -199,3 +205,38 @@ def get_recomm_sys_model(model_key: str) -> SentenceTransformer:
     if model_key not in _model_cache:
         _model_cache[model_key] = SentenceTransformer(RECOMM_SYS_SUPPORTED_MODELS[model_key])
     return _model_cache[model_key]
+
+
+def format_results_neural_search(hit: Dict[str, Any]) -> Dict[str, Any]:
+    source = hit["_source"]
+
+    # Convert dateCreated to DD-MM-YYYY format
+    date_created = source.get("dateCreated", "N/A")
+    try:
+        formatted_date = datetime.strptime(date_created, "%Y-%m-%d").strftime("%d-%m-%Y")
+    except ValueError:
+        formatted_date = date_created
+
+    source["dateCreated"] = formatted_date
+    source["_tags"] = source.get("keywords", [])
+
+    return {
+        "_id": hit["_id"],
+        "_score": hit["_score"],
+        "title": source.get("title"),
+        "summary": source.get("summary"),
+        "projectAcronym": source.get("projectAcronym"),
+        "projectName": source.get("projectName"),
+        "project_type": source.get("project_type"),
+        "project_id": source.get("project_id"),
+        "topics": source.get("topics"),
+        "subtopics": source.get("subtopics"),
+        "keywords": source.get("keywords"),
+        "languages": source.get("languages"),
+        "locations": source.get("locations"),
+        "fileType": source.get("fileType"),
+        "creators": source.get("creators"),
+        "dateCreated": source.get("dateCreated"),
+        "@id": source.get("@id"),
+        "_tags": source.get("_tags"),
+    }

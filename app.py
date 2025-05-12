@@ -1,8 +1,8 @@
 # app.py
 
-import datetime
 import logging
 
+from datetime import datetime
 from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
 
@@ -13,13 +13,26 @@ from services.neural_search_relevant import neural_search_relevant, RelevantSear
 from services.recommender import recommend_similar, RecommenderRequest, recommend_similar_cos
 from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.validate_and_analyse_results import analyze_search_results
-from services.utils import PAGE_SIZE, BasicAuthMiddleware, BASIC_AUTH_PASS, BASIC_AUTH_USER, MODEL_CONFIG
+from services.utils import (PAGE_SIZE, BASIC_AUTH_PASS, BASIC_AUTH_USER, MODEL_CONFIG, MultiUserTimedAuthMiddleware,
+                            format_results_neural_search)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+ALLOWED_USERS = {
+    BASIC_AUTH_USER: {
+        "password": BASIC_AUTH_PASS,
+        "expires": None
+    },
+    "reviewer": {
+        "password": "ItRWu8Y4jX1L",
+        "expires": datetime(2025, 7, 31, 23, 59, 59)
+    }
+}
+
 app = FastAPI(title="OpenSearch API", version="1.0")
-app.add_middleware(BasicAuthMiddleware, username=BASIC_AUTH_USER, password=BASIC_AUTH_PASS)
+# app.add_middleware(BasicAuthMiddleware, username=BASIC_AUTH_USER, password=BASIC_AUTH_PASS)
+app.add_middleware(MultiUserTimedAuthMiddleware, users=ALLOWED_USERS)
 
 origins = [
     "http://127.0.0.1:8000",
@@ -148,26 +161,7 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     # Perform Analysis on Search Results
     # analysis = analyze_search_results(results)
 
-    formatted_results = []
-    for hit in results:
-        source = hit["_source"]
-
-        # Convert dateCreated from YYYY-MM-DD to DD-MM-YYYY
-        date_created = source.get("dateCreated", "N/A")
-        try:
-            formatted_date = datetime.datetime.strptime(date_created, "%Y-%m-%d").strftime("%d-%m-%Y")
-        except ValueError:
-            formatted_date = date_created  # Keep as is if conversion fails
-
-        # Update result entry with formatted date
-        source["dateCreated"] = formatted_date
-
-        # Copy keywords to _tags
-        source["_tags"] = source.get("keywords", [])
-
-        # Flatten structure: move _score and _id to the same level as _source contents
-        flattened_result = {"_id": hit["_id"], "_score": hit["_score"], **source}
-        formatted_results.append(flattened_result)
+    formatted_results = [format_results_neural_search(hit) for hit in results]
 
     # If k is provided, override pagination and return top-k only
     if request.k is not None and request.k > 0:
