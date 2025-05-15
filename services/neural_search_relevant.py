@@ -120,9 +120,9 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                     "projectAcronym^9",
                     "projectName^9",
                     "title^8",
-                    "content_pages^7",
-                    "keywords^6",
-                    "summary^5"
+                    "keywords^7",
+                    "summary^6",
+                    "content_pages^5"
                 ]
             }
         }
