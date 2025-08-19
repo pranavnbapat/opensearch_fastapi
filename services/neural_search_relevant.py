@@ -45,7 +45,7 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
     if filters.get("languages"):
         filter_conditions.append({"terms": {"languages": lowercase_list(filters["languages"])}})
     if filters.get("locations"):
-        filter_conditions.append({"terms": {"locations": lowercase_list(filters["locations"])}})
+        filter_conditions.append({"terms": {"locations": filters["locations"]}})
     if filters.get("fileType"):
         filter_conditions.append({"terms": {"fileType": filters["fileType"]}})
     if filters.get("project_type"):
