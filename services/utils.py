@@ -5,6 +5,7 @@ import nltk
 import numpy as np
 import os
 
+from collections import defaultdict
 from datetime import datetime
 from dotenv import load_dotenv
 from functools import lru_cache
@@ -243,3 +244,109 @@ def format_results_neural_search(hit: Dict[str, Any]) -> Dict[str, Any]:
         "@id": source.get("@id"),
         "_tags": source.get("_tags"),
     }
+
+
+def group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3):
+    """
+    Group chunk hits by parent_id and keep top-k snippets per parent.
+    """
+    grouped = {}
+
+    for h in hits:
+        src = h.get("_source", {})
+        pid = src.get("parent_id") or src.get("_orig_id")  # meta doc safety
+        if not pid:
+            continue
+
+        entry = grouped.setdefault(pid, {
+            "parent_id": pid,
+            "projectName": src.get("projectName"),
+            "projectAcronym": src.get("projectAcronym"),
+            "title": src.get("title"),
+            "subtitle": src.get("subtitle"),
+            "description": src.get("description"),
+            "keywords": src.get("keywords"),
+            "topics": src.get("topics"),
+            "themes": src.get("themes"),
+            "locations": src.get("locations"),
+            "languages": src.get("languages"),
+            "category": src.get("category"),
+            "subcategory": src.get("subcategory"),
+            "date_of_completion": src.get("date_of_completion"),
+            "creators": src.get("creators"),
+            "intended_purposes": src.get("intended_purposes"),
+            "project_id": src.get("project_id"),
+            "project_type": src.get("project_type"),
+            "projectURL": src.get("projectURL"),
+            "snippets": [],
+            "max_score": 0.0,
+        })
+
+        # prefer highlighted snippet if available
+        hi = h.get("highlight", {}).get("content_chunk", [])
+        snippet = hi[0] if hi else (src.get("content_chunk") or "")
+        score = h.get("_score", 0.0)
+
+        entry["snippets"].append({
+            "chunk_index": src.get("chunk_index"),
+            "snippet": snippet,
+            "score": score,
+            "_id": h.get("_id")
+        })
+        if score > entry["max_score"]:
+            entry["max_score"] = score
+
+    # rank parents by their best chunk score
+    parents_ranked = sorted(grouped.values(), key=lambda x: x["max_score"], reverse=True)
+
+    # keep top PAGE_SIZE parents; trim snippets per parent
+    top_parents = parents_ranked[:parents_size]
+    for p in top_parents:
+        p["snippets"] = sorted(p["snippets"], key=lambda s: s["score"], reverse=True)[:top_k_snippets]
+
+    return {
+        "total_parents": len(parents_ranked),
+        "parents": top_parents
+    }
+
+def fetch_chunks_for_parents(index_name: str, parent_ids: list[str]) -> dict[str, list[dict]]:
+    """
+    Return all chunks for each parent_id, ordered by chunk_index.
+    Shape per chunk: {"chunk_index": int, "content": str, "_id": str}
+    """
+    if not parent_ids:
+        return {}
+
+    body = {
+        "_source": ["parent_id", "content_chunk", "chunk_index"],
+        "size": 10000,
+        "query": {
+            "bool": {
+                "filter": [{"terms": {"parent_id": parent_ids}}]
+            }
+        },
+        "sort": [
+            {"parent_id": "asc"},
+            {"chunk_index": "asc"}
+        ]
+    }
+    resp = client.search(index=index_name, body=body)
+
+    by_parent: dict[str, list[dict]] = defaultdict(list)
+    for h in resp["hits"]["hits"]:
+        src = h["_source"]
+        # skip meta docs or empties
+        if src.get("chunk_index", -1) < 0:
+            continue
+        txt = src.get("content_chunk", "")
+        if not isinstance(txt, str) or not txt.strip():
+            continue
+
+        by_parent[src["parent_id"]].append({
+            "chunk_index": src.get("chunk_index"),
+            "content": txt,
+            "_id": h.get("_id"),
+        })
+
+    return by_parent
+

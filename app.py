@@ -14,7 +14,7 @@ from services.recommender import recommend_similar, RecommenderRequest, recommen
 from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.validate_and_analyse_results import analyze_search_results
 from services.utils import (PAGE_SIZE, BASIC_AUTH_PASS, BASIC_AUTH_USER, MODEL_CONFIG, MultiUserTimedAuthMiddleware,
-                            format_results_neural_search)
+                            format_results_neural_search, fetch_chunks_for_parents)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -126,46 +126,43 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         use_semantic=use_semantic
     )
 
-    total_results = response["hits"]["total"]["value"]
-    total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
-    results = response["hits"]["hits"]
+    grouped = response.get("grouped", {})
+    parents = grouped.get("parents", [])
+    total_parents = grouped.get("total_parents", len(parents))
 
-    #################### Code below lists top 3 projects from this page
-    # Build project aggregation from search results
-    project_counter = {}
+    # Get full texts for these parents
+    parent_ids = [p["parent_id"] for p in parents]
+    chunks_map = fetch_chunks_for_parents(index_name, parent_ids) if parent_ids else {}
 
-    for hit in results:
-        source = hit["_source"]
-        project_id = source.get("project_id", "Unknown ID")
-
-        project_counter[project_id] = project_counter.get(project_id, 0) + 1
-
-    # Sort by count, descending
-    sorted_projects = sorted(project_counter.items(), key=lambda x: x[1], reverse=True)
-
-    # Take top 3 only
-    top_3_projects = sorted_projects[:3]
-    ####################
-
-    ##################### Code below lists top 3 projects from the entire resultset
-    aggregations = response.get("aggregations", {})
-    top_projects_buckets = aggregations.get("top_projects", {}).get("buckets", [])
-
-    related_projects_2 = []
-    for bucket in top_projects_buckets:
-        acronym = bucket["key"]
-        related_projects_2.append({
-            "project_id": acronym,
-            "count": bucket["doc_count"]
+    # Parent-level “formatted” result objects
+    formatted_results = []
+    for p in parents:
+        pid = p.get("parent_id")
+        formatted_results.append({
+            "parent_id": p.get("parent_id"),
+            "projectAcronym": p.get("projectAcronym"),
+            "projectName": p.get("projectName"),
+            "title": p.get("title"),
+            "subtitle": p.get("subtitle"),
+            "description": p.get("description"),
+            "project_type": p.get("project_type"),
+            "project_id": p.get("project_id"),
+            "topics": p.get("topics"),
+            "themes": p.get("themes"),
+            "keywords": p.get("keywords"),
+            "languages": p.get("languages"),
+            "locations": p.get("locations"),
+            "category": p.get("category"),
+            "subcategory": p.get("subcategory"),
+            "creators": p.get("creators"),
+            "date_of_completion": p.get("date_of_completion"),
+            "projectURL": p.get("projectURL"),
+            "score": p.get("max_score"),
+            "snippets": p.get("snippets", []),
+            "chunks": chunks_map.get(pid, [])
         })
-    ####################
 
-    # Perform Analysis on Search Results
-    # analysis = analyze_search_results(results)
-
-    formatted_results = [format_results_neural_search(hit) for hit in results]
-
-    # If k is provided, override pagination and return top-k only
+    # k override still applies (now to parent results)
     if request.k is not None and request.k > 0:
         formatted_results = formatted_results[:request.k]
         pagination = {
@@ -176,26 +173,96 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
             "prev_page": None
         }
     else:
+        total_pages = (total_parents + PAGE_SIZE - 1) // PAGE_SIZE
         pagination = {
-            "total_records": total_results,
+            "total_records": total_parents,
             "current_page": page_number,
             "total_pages": total_pages,
             "next_page": page_number + 1 if page_number < total_pages else None,
             "prev_page": page_number - 1 if page_number > 1 else None
         }
 
+    # project counts: your earlier logic can stay, but now work off parent-level data if you wish.
     response_json = {
         "data": formatted_results,
         "related_projects_from_this_page": [
-            {
-                "project_id": pid,
-                "count": count
-            }
-            for pid, count in top_3_projects
+            # optional: recompute from parents list
         ],
-        "related_projects_from_entire_resultset": related_projects_2,
+        "related_projects_from_entire_resultset": response.get("aggregations", {}).get("top_projects", {}).get(
+            "buckets", []),
         "pagination": pagination
     }
+
+    # total_results = response["hits"]["total"]["value"]
+    # total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
+    # results = response["hits"]["hits"]
+    #
+    # #################### Code below lists top 3 projects from this page
+    # # Build project aggregation from search results
+    # project_counter = {}
+    #
+    # for hit in results:
+    #     source = hit["_source"]
+    #     project_id = source.get("project_id", "Unknown ID")
+    #
+    #     project_counter[project_id] = project_counter.get(project_id, 0) + 1
+    #
+    # # Sort by count, descending
+    # sorted_projects = sorted(project_counter.items(), key=lambda x: x[1], reverse=True)
+    #
+    # # Take top 3 only
+    # top_3_projects = sorted_projects[:3]
+    # ####################
+    #
+    # ##################### Code below lists top 3 projects from the entire resultset
+    # aggregations = response.get("aggregations", {})
+    # top_projects_buckets = aggregations.get("top_projects", {}).get("buckets", [])
+    #
+    # related_projects_2 = []
+    # for bucket in top_projects_buckets:
+    #     acronym = bucket["key"]
+    #     related_projects_2.append({
+    #         "project_id": acronym,
+    #         "count": bucket["doc_count"]
+    #     })
+    # ####################
+    #
+    # # Perform Analysis on Search Results
+    # # analysis = analyze_search_results(results)
+    #
+    # formatted_results = [format_results_neural_search(hit) for hit in results]
+    #
+    # # If k is provided, override pagination and return top-k only
+    # if request.k is not None and request.k > 0:
+    #     formatted_results = formatted_results[:request.k]
+    #     pagination = {
+    #         "total_records": len(formatted_results),
+    #         "current_page": 1,
+    #         "total_pages": 1,
+    #         "next_page": None,
+    #         "prev_page": None
+    #     }
+    # else:
+    #     pagination = {
+    #         "total_records": total_results,
+    #         "current_page": page_number,
+    #         "total_pages": total_pages,
+    #         "next_page": page_number + 1 if page_number < total_pages else None,
+    #         "prev_page": page_number - 1 if page_number > 1 else None
+    #     }
+    #
+    # response_json = {
+    #     "data": formatted_results,
+    #     "related_projects_from_this_page": [
+    #         {
+    #             "project_id": pid,
+    #             "count": count
+    #         }
+    #         for pid, count in top_3_projects
+    #     ],
+    #     "related_projects_from_entire_resultset": related_projects_2,
+    #     "pagination": pagination
+    # }
 
     logger.info(f"Search Query: '{query}', Semantic: {use_semantic}, Index: {index_name}, Page: {page_number}")
 

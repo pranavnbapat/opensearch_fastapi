@@ -1,7 +1,8 @@
 # services/neural_search_relevant.py
 
 from pydantic import BaseModel
-from services.utils import lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client
+from services.utils import (lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client,
+                            group_hits_by_parent)
 from typing import List, Optional, Dict, Any
 
 
@@ -132,7 +133,8 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                     "subtitle^7",
                     "keywords^7",
                     "description^6",
-                    "content_pages^5"
+                    "content_chunk^5"
+                    # "content_pages^5"
                 ]
             }
         }
@@ -163,7 +165,7 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                 "title_embedding_input",
                 "subtitle_embedding_input",
                 "project_embedding_input",
-                "projectURL",
+                # "projectURL",
                 "_orig_id",
             ]
         },
@@ -185,8 +187,26 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                     "order": { "_count": "desc" }
                 }
             }
-        }
+        },
+        "highlight": {
+            "fields": {
+                "content_chunk": {
+                    "number_of_fragments": 0
+                }
+            }
+        },
     }
 
+    raw_fetch_size = PAGE_SIZE * 40
+    search_query["size"] = raw_fetch_size
+    search_query["from"] = 0
+
     response = client.search(index=index_name, body=search_query)
+
+    hits = response["hits"]["hits"]
+    grouped = group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3)
+
+    # Overwrite the original response shape to your controller’s expectations
+    response["grouped"] = grouped
+
     return response
