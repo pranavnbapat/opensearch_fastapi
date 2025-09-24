@@ -93,9 +93,9 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
 
     filters = {
         "topics": request.topics,
-        "subtopics": request.subtopics,
+        "themes": request.themes,
         "languages": request.languages,
-        "fileType": request.fileType,
+        "category": request.category,
         "project_type": request.project_type,
         "projectAcronym": request.projectAcronym,
         "locations": request.locations
