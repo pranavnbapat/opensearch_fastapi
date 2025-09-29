@@ -212,13 +212,13 @@ def format_results_neural_search(hit: Dict[str, Any]) -> Dict[str, Any]:
     source = hit["_source"]
 
     # Convert dateCreated to DD-MM-YYYY format
-    date_created = source.get("dateCreated", "N/A")
+    date_created = source.get("date_of_completion", "N/A")
     try:
         formatted_date = datetime.strptime(date_created, "%Y-%m-%d").strftime("%d-%m-%Y")
     except ValueError:
         formatted_date = date_created
 
-    source["dateCreated"] = formatted_date
+    source["date_of_completion"] = formatted_date
     source["_tags"] = source.get("keywords", [])
 
     return {
@@ -239,22 +239,19 @@ def format_results_neural_search(hit: Dict[str, Any]) -> Dict[str, Any]:
         "category": source.get("category"),
         "subcategory": source.get("subcategory"),
         "creators": source.get("creators"),
-        "dateCreated": source.get("dateCreated"),
-        "ko_content_flat": source.get("ko_content_flat"),
+        "date_of_completion": source.get("date_of_completion"),
+        "content_pages": source.get("content_pages"),
         "@id": source.get("@id"),
         "_tags": source.get("_tags"),
     }
 
 
-def group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3):
-    """
-    Group chunk hits by parent_id and keep top-k snippets per parent.
-    """
+def group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3, include_snippets=False):
     grouped = {}
 
     for h in hits:
         src = h.get("_source", {})
-        pid = src.get("parent_id") or src.get("_orig_id")  # meta doc safety
+        pid = src.get("parent_id") or src.get("_orig_id")
         if not pid:
             continue
 
@@ -271,43 +268,41 @@ def group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3):
             "locations": src.get("locations"),
             "languages": src.get("languages"),
             "category": src.get("category"),
-            "subcategory": src.get("subcategory"),
+            "subcategories": src.get("subcategories"),
             "date_of_completion": src.get("date_of_completion"),
             "creators": src.get("creators"),
             "intended_purposes": src.get("intended_purposes"),
             "project_id": src.get("project_id"),
             "project_type": src.get("project_type"),
             "projectURL": src.get("projectURL"),
-            "snippets": [],
+            "@id": src.get("@id"),
             "max_score": 0.0,
+            **({"snippets": []} if include_snippets else {})
         })
 
-        # prefer highlighted snippet if available
-        hi = h.get("highlight", {}).get("content_chunk", [])
-        snippet = hi[0] if hi else (src.get("content_chunk") or "")
         score = h.get("_score", 0.0)
 
-        entry["snippets"].append({
-            "chunk_index": src.get("chunk_index"),
-            "snippet": snippet,
-            "score": score,
-            "_id": h.get("_id")
-        })
+        if include_snippets:
+            hi = h.get("highlight", {}).get("content_chunk", [])
+            snippet = hi[0] if hi else (src.get("content_chunk") or "")
+            entry["snippets"].append({
+                "chunk_index": src.get("chunk_index"),
+                "snippet": snippet,
+                "score": score,
+                "_id": h.get("_id")
+            })
+
         if score > entry["max_score"]:
             entry["max_score"] = score
 
-    # rank parents by their best chunk score
     parents_ranked = sorted(grouped.values(), key=lambda x: x["max_score"], reverse=True)
-
-    # keep top PAGE_SIZE parents; trim snippets per parent
     top_parents = parents_ranked[:parents_size]
-    for p in top_parents:
-        p["snippets"] = sorted(p["snippets"], key=lambda s: s["score"], reverse=True)[:top_k_snippets]
 
-    return {
-        "total_parents": len(parents_ranked),
-        "parents": top_parents
-    }
+    # if include_snippets:
+    #     for p in top_parents:
+    #         p["snippets"] = sorted(p["snippets"], key=lambda s: s["score"], reverse=True)[:top_k_snippets]
+
+    return {"total_parents": len(parents_ranked), "parents": top_parents}
 
 def fetch_chunks_for_parents(index_name: str, parent_ids: list[str]) -> dict[str, list[dict]]:
     """

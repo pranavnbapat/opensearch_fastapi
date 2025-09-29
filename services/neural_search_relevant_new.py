@@ -1,11 +1,12 @@
 # services/neural_search_relevant.py
 
 from pydantic import BaseModel
-from services.utils import (lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client)
+from services.utils import (PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client,
+                            group_hits_by_parent)
 from typing import List, Optional, Dict, Any
 
 
-class RelevantSearchRequest(BaseModel):
+class RelevantSearchRequestNew(BaseModel):
     search_term: str
     topics: Optional[List[str]] = None
     themes: Optional[List[str]] = None
@@ -20,9 +21,8 @@ class RelevantSearchRequest(BaseModel):
     model: Optional[str] = "msmarco"
 
 
-def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any], page: int, model_id: str,
+def neural_search_relevant_new(index_name: str, query: str, filters: Dict[str, Any], page: int, model_id: str,
                            use_semantic: bool = True,):
-# def neural_search_relevant(index_name, query, filters, page):
     """
     Perform semantic or BM25-based neural search against OpenSearch.
 
@@ -115,6 +115,23 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                             }
                         }
                     },
+                    {
+                        "multi_match": {
+                            "query": remove_stopwords_from_query(query),
+                            "fields": [
+                                "projectAcronym^9",
+                                "projectName^9",
+                                "title^8",
+                                "subtitle^7",
+                                "keywords^7",
+                                "description^6",
+                                "content_chunk^5"
+                            ],
+                            "operator": "and",
+                            "type": "best_fields",
+                            "boost": 0.3
+                        }
+                    }
                 ],
                 "minimum_should_match": 1  # At least one should match
             }
@@ -123,17 +140,42 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
         filtered_query = remove_stopwords_from_query(query)
 
         query_part = {
-            "multi_match": {
-                "query": filtered_query,
-                "fields": [
-                    "projectAcronym^9",
-                    "projectName^9",
-                    "title^8",
-                    "subtitle^7",
-                    "keywords^7",
-                    "description^6",
-                    "content_pages^5"
-                ]
+            "bool": {
+                "should": [
+                    {
+                        "multi_match": {
+                            "query": filtered_query,
+                            "fields": [
+                                "projectAcronym^9",
+                                "projectName^9",
+                                "title^8",
+                                "subtitle^7",
+                                "keywords^7",
+                                "description^6",
+                                "content_chunk^5",
+                                "themes^3",
+                                "topics^3",
+                                "subcategories^2",
+                                "category^2",
+                                "locations^2",
+                            ],
+                            "operator": "and",
+                            "type": "best_fields",
+                            "boost": 1.0
+                        }
+                    },
+                    {
+                        "neural": {
+                            "content_embedding": {
+                                "query_text": query,
+                                "model_id": model_id,
+                                "k": K_VALUE,
+                                "boost": 0.3
+                            }
+                        }
+                    }
+                ],
+                "minimum_should_match": 1
             }
         }
 
@@ -161,7 +203,6 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                 "title_embedding_input",
                 "subtitle_embedding_input",
                 "project_embedding_input",
-                "projectURL",
                 "_orig_id",
             ]
         },
@@ -178,14 +219,39 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
         "aggs": {
             "top_projects": {
                 "terms": {
-                    "field": "project_id",
+                    "field": "project_id",          # use "project_id.keyword" if your mapping requires it
                     "size": 3,
-                    "order": { "_count": "desc" }
+                    "order": { "unique_parents": "desc" }
+                },
+                "aggs": {
+                    "unique_parents": {
+                        "cardinality": {
+                            "field": "parent_id",
+                            "precision_threshold": 40000
+                        }
+                    }
                 }
             }
-        }
+        },
+        "highlight": {
+            "fields": {
+                "content_chunk": {
+                    "number_of_fragments": 0
+                }
+            }
+        },
     }
 
-    response = client.search(index=index_name, body=search_query)
-    return response
+    raw_fetch_size = PAGE_SIZE * 40
+    search_query["size"] = raw_fetch_size
+    search_query["from"] = 0
 
+    response = client.search(index=index_name, body=search_query)
+
+    hits = response["hits"]["hits"]
+    grouped = group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3)
+
+    # Overwrite the original response shape to your controller’s expectations
+    response["grouped"] = grouped
+
+    return response
