@@ -237,11 +237,12 @@ def format_results_neural_search(hit: Dict[str, Any]) -> Dict[str, Any]:
         "languages": source.get("languages"),
         "locations": source.get("locations"),
         "category": source.get("category"),
-        "subcategory": source.get("subcategory"),
+        "subcategories": source.get("subcategories"),
         "creators": source.get("creators"),
-        "date_of_completion": source.get("date_of_completion"),
-        "content_pages": source.get("content_pages"),
+        "dateCreated": source.get("date_of_completion"),
+        "ko_content_flat": source.get("ko_content_flat"),
         "@id": source.get("@id"),
+        "_orig_id": source.get("_orig_id"),
         "_tags": source.get("_tags"),
     }
 
@@ -344,4 +345,3 @@ def fetch_chunks_for_parents(index_name: str, parent_ids: list[str]) -> dict[str
         })
 
     return by_parent
-

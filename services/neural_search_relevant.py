@@ -1,7 +1,7 @@
 # services/neural_search_relevant.py
 
 from pydantic import BaseModel
-from services.utils import (lowercase_list, PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client)
+from services.utils import (PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client)
 from typing import List, Optional, Dict, Any
 
 
@@ -132,7 +132,7 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                     "subtitle^7",
                     "keywords^7",
                     "description^6",
-                    "content_pages^5"
+                    "content_chunk^5"
                 ]
             }
         }
@@ -161,8 +161,6 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                 "title_embedding_input",
                 "subtitle_embedding_input",
                 "project_embedding_input",
-                "projectURL",
-                "_orig_id",
             ]
         },
         "track_total_hits": True,
@@ -183,9 +181,9 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                     "order": { "_count": "desc" }
                 }
             }
-        }
+        },
     }
 
     response = client.search(index=index_name, body=search_query)
-    return response
 
+    return response

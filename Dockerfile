@@ -20,13 +20,13 @@ COPY requirements.txt .
 
 # Install OS deps, then Python deps with a persistent pip cache
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      g++ cmake libffi-dev libssl-dev wget nano \
- && rm -rf /var/lib/apt/lists/* \
- && pip install --upgrade pip \
+    g++ cmake libffi-dev libssl-dev wget nano \
+  && rm -rf /var/lib/apt/lists/* \
+  && python -m pip install --upgrade pip
 
 # Python deps with pip cache (BuildKit)  ← the --mount must be here
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt 'huggingface_hub[hf_xet]' \
+    pip install --no-cache-dir -r requirements.txt 'huggingface_hub[hf_xet]'
 
 # NLTK data (network fetch at build time)
 RUN python -m nltk.downloader stopwords

@@ -257,15 +257,15 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
     total_parents = grouped.get("total_parents", len(parents))
 
     # Get full texts for these parents
-    # parent_ids = [p["parent_id"] for p in parents]
-    # chunks_map = fetch_chunks_for_parents(index_name, parent_ids) if parent_ids else {}
+    parent_ids = [p["parent_id"] for p in parents]
+    chunks_map = fetch_chunks_for_parents(index_name, parent_ids) if parent_ids else {}
 
     # Parent-level “formatted” result objects
     formatted_results = []
     for p in parents:
         pid = p.get("parent_id")
         # Convert chunks -> array of strings (like ko_content_flat was originally)
-        # ko_chunks = [c["content"] for c in chunks_map.get(pid, [])]
+        ko_chunks = [c["content"] for c in chunks_map.get(pid, [])]
 
         formatted_results.append({
             "_id": pid,
@@ -286,7 +286,7 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
             "subcategories": p.get("subcategories") or [],
             "creators": p.get("creators") or [],
             "date_of_completion": p.get("date_of_completion"),
-            # "ko_content_flat": ko_chunks,
+            "ko_content_flat": ko_chunks,
             "@id": p.get("@id"),
             "_tags": p.get("keywords") or []
         })
