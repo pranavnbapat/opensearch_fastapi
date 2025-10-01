@@ -247,7 +247,7 @@ def format_results_neural_search(hit: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3, include_snippets=False):
+def group_hits_by_parent(hits, parents_size=PAGE_SIZE):
     grouped = {}
 
     for h in hits:
@@ -279,31 +279,16 @@ def group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3, include
             "@id": src.get("@id"),
             "_orig_id": src.get("_orig_id"),
             "max_score": 0.0,
-            **({"snippets": []} if include_snippets else {})
         })
 
         score_raw = h.get("_score")
         score = score_raw if isinstance(score_raw, (int, float)) else 0.0
-
-        if include_snippets:
-            hi = h.get("highlight", {}).get("content_chunk", [])
-            snippet = hi[0] if hi else (src.get("content_chunk") or "")
-            entry["snippets"].append({
-                "chunk_index": src.get("chunk_index"),
-                "snippet": snippet,
-                "score": score,
-                "_id": h.get("_id")
-            })
 
         if score > entry["max_score"]:
             entry["max_score"] = score
 
     parents_ranked = sorted(grouped.values(), key=lambda x: x["max_score"], reverse=True)
     top_parents = parents_ranked[:parents_size]
-
-    # if include_snippets:
-    #     for p in top_parents:
-    #         p["snippets"] = sorted(p["snippets"], key=lambda s: s["score"], reverse=True)[:top_k_snippets]
 
     return {"total_parents": len(parents_ranked), "parents": top_parents}
 
@@ -347,3 +332,59 @@ def fetch_chunks_for_parents(index_name: str, parent_ids: list[str]) -> dict[str
         })
 
     return by_parent
+
+def build_sort(sort_by: str, has_query: bool):
+    """
+    Returns an OpenSearch sort clause based on sort_by and whether there's a query.
+    - For browsing (no query), default to chunk order so pages flow naturally.
+    - For query mode, default to _score desc with a stable tiebreaker.
+    """
+    if not has_query:
+        # When there's no query, show meta/chunk order deterministically
+        return [{"chunk_index": "asc"}, {"_id": "asc"}]
+
+    mapping = {
+        "score_desc": [{"_score": "desc"}, {"chunk_index": "asc"}],
+        "score_asc":  [{"_score": "asc"},  {"chunk_index": "asc"}],
+
+        "ko_updated_at_desc":  [
+            {"ko_updated_at":  {"order": "desc", "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}  # secondary tiebreaker
+        ],
+        "ko_updated_at_asc":   [
+            {"ko_updated_at":  {"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+        "proj_updated_at_desc": [
+            {"proj_updated_at":{"order": "desc", "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+        "proj_updated_at_asc":  [
+            {"proj_updated_at":{"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+
+        # (Optional) Created-at variants, since you indexed them:
+        "ko_created_at_desc":  [
+            {"ko_created_at":  {"order": "desc", "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+        "ko_created_at_asc":   [
+            {"ko_created_at":  {"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+        "proj_created_at_desc": [
+            {"proj_created_at":{"order": "desc", "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+        "proj_created_at_asc":  [
+            {"proj_created_at":{"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+    }
+
+    # If there is NO query and user didn’t ask for a date sort, show chunks in natural order
+    if not has_query and sort_by in ("score_desc", "score_asc"):
+        return [{"chunk_index": "asc"}, {"_id": "asc"}]
+    return mapping.get(sort_by, mapping["score_desc"])
+

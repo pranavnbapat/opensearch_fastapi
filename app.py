@@ -224,7 +224,8 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
         "category": request.category,
         "project_type": request.project_type,
         "project_acronym": request.project_acronym,
-        "locations": request.locations
+        "locations": request.locations,
+        "sort_by": getattr(request, "sort_by", None)
     }
 
     # Smart fallback to BM25 if query is short

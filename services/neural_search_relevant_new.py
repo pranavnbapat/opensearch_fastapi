@@ -1,10 +1,56 @@
 # services/neural_search_relevant_new.py
 
-from pydantic import BaseModel
-from services.utils import (PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client,
-                            group_hits_by_parent)
-from typing import List, Optional, Dict, Any
+from enum import Enum
+from typing import List, Optional, Dict, Any, Union
 
+from pydantic import BaseModel
+
+from services.utils import (PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client,
+                            group_hits_by_parent, build_sort)
+
+
+class SortBy(str, Enum):
+    score_desc = "score_desc"
+    score_asc  = "score_asc"
+
+    ko_created_at_desc  = "ko_created_at_desc"
+    ko_created_at_asc   = "ko_created_at_asc"
+    ko_updated_at_desc  = "ko_updated_at_desc"
+    ko_updated_at_asc   = "ko_updated_at_asc"
+
+    proj_created_at_desc = "proj_created_at_desc"
+    proj_created_at_asc  = "proj_created_at_asc"
+    proj_updated_at_desc = "proj_updated_at_desc"
+    proj_updated_at_asc  = "proj_updated_at_asc"
+
+NUMERIC_SORT_MAP = {
+    1: SortBy.score_desc,          2: SortBy.score_asc,
+    3: SortBy.ko_created_at_desc,  4: SortBy.ko_created_at_asc,
+    5: SortBy.ko_updated_at_desc,  6: SortBy.ko_updated_at_asc,
+    7: SortBy.proj_created_at_desc,8: SortBy.proj_created_at_asc,
+    9: SortBy.proj_updated_at_desc,10: SortBy.proj_updated_at_asc,
+}
+
+def coerce_sort(raw: Union[None, int, str, SortBy]) -> str:
+    """
+    Accepts Enum | int | str | None and returns a canonical sort key string.
+    Falls back to 'score_desc' on unknown values.
+    """
+    if raw is None:
+        return SortBy.score_desc.value
+    if isinstance(raw, SortBy):
+        return raw.value
+    # numerals (e.g., "3" or 3)
+    try:
+        i = int(raw)
+        return NUMERIC_SORT_MAP.get(i, SortBy.score_desc).value
+    except (TypeError, ValueError):
+        pass
+    s = str(raw).strip().lower()
+    for member in SortBy:
+        if s == member.value:
+            return member.value
+    return SortBy.score_desc.value
 
 class RelevantSearchRequestNew(BaseModel):
     search_term: str
@@ -20,6 +66,7 @@ class RelevantSearchRequestNew(BaseModel):
     k: Optional[int] = None
     model: Optional[str] = "msmarco"
     include_fulltext: Optional[bool] = False
+    sort_by: Optional[Union[SortBy, int, str]] = SortBy.score_desc
 
 
 def neural_search_relevant_new(
@@ -59,87 +106,47 @@ def neural_search_relevant_new(
 
     # Decide query type based on whether search_term is provided
     if not query:
-        query_part: Dict[str, Any] = {"match_all": {}}
+        query_part = {"match_all": {}}
     elif use_semantic:
-        # Neural semantic search
         query_part = {
             "bool": {
                 "should": [
                     {
-                        "neural": {
-                            "title_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
+                        "dis_max": {
+                            "tie_breaker": 0.2,
+                            "queries": [
+                                {"neural": {
+                                    "content_embedding": {
+                                        "query_text": query,
+                                        "model_id": model_id,
+                                        "k": K_VALUE
+                                    }
+                                }
+                                },
+                                {"multi_match": {
+                                    "query": remove_stopwords_from_query(query),
+                                    "fields": [
+                                        "project_name^9", "title^8", "subtitle^7",
+                                        "keywords^7", "description^6", "content_chunk^5"
+                                    ],
+                                    "operator": "and",
+                                    "type": "best_fields"
+                                }
+                                }
+                            ]
                         }
                     },
-                    {
-                        "neural": {
-                            "subtitle_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
+                    {"neural": {
+                        "title_embedding": {
+                            "query_text": query,
+                            "model_id": model_id,
+                            "k": min(K_VALUE, 100)
                         }
+                    }
                     },
-                    {
-                        "neural": {
-                            "description_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
-                        }
-                    },
-                    {
-                        "neural": {
-                            "keywords_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
-                        }
-                    },
-                    {
-                        "neural": {
-                            "content_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
-                        }
-                    },
-                    {
-                        "neural": {
-                            "project_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
-                        }
-                    },
-                    {
-                        "multi_match": {
-                            "query": remove_stopwords_from_query(query),
-                            "fields": [
-                                # TEXT fields only
-                                "project_name^9",
-                                "title^8",
-                                "subtitle^7",
-                                "keywords^7",
-                                "description^6",
-                                "content_chunk^5"
-                            ],
-                            "operator": "and",
-                            "type": "best_fields",
-                            "boost": 0.3
-                        }
-                    },
-                    # Optional: exact acronym “term” on keyword field
-                    {"term": {"project_acronym": {"value": query, "boost": 6.0}}},
+                    {"term": {"project_acronym": {"value": query, "boost": 6.0}}}
                 ],
-                "minimum_should_match": 1  # At least one should match
+                "minimum_should_match": 1
             }
         }
     else:
@@ -182,6 +189,13 @@ def neural_search_relevant_new(
             }
         }
 
+    if not query:
+        must_not = []  # include meta docs so ALL KOs can show up
+    else:
+        must_not = [{"term": {"chunk_index": -1}}]
+
+    raw_sort = (filters or {}).get("sort_by")
+    sort_key = coerce_sort(raw_sort)
 
     # Final OpenSearch query
     search_query = {
@@ -190,7 +204,8 @@ def neural_search_relevant_new(
                 "parent_id", "project_name", "project_acronym", "title", "subtitle", "description",
                 "keywords", "topics", "themes", "locations", "languages", "category", "subcategories",
                 "date_of_completion", "creators", "intended_purposes", "project_id", "project_type",
-                "project_url", "@id", "_orig_id",
+                "project_url", "@id", "_orig_id", "ko_created_at", "ko_updated_at", "proj_created_at",
+                "proj_updated_at",
             ],
             "excludes": [
                 # vector fields
@@ -217,16 +232,14 @@ def neural_search_relevant_new(
         "track_total_hits": True,
         "size": PAGE_SIZE,
         "from": from_offset,
-        "sort": [{"_score": "desc"}],
         "query": {
             "bool": {
                 "must": query_part,
                 "filter": filter_conditions,
-                "must_not": [
-                    {"term": {"chunk_index": -1}}
-                ]
+                "must_not": must_not
             }
         },
+        "collapse": {"field": "parent_id"},
         "aggs": {
             "top_projects": {
                 "terms": {
@@ -246,6 +259,8 @@ def neural_search_relevant_new(
         },
     }
 
+    search_query["sort"] = build_sort(sort_key, has_query=bool(query))
+
     raw_fetch_size = PAGE_SIZE * 40
     search_query["size"] = raw_fetch_size
     search_query["from"] = 0
@@ -253,7 +268,7 @@ def neural_search_relevant_new(
     response = client.search(index=index_name, body=search_query)
 
     hits = response["hits"]["hits"]
-    grouped = group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3)
+    grouped = group_hits_by_parent(hits, parents_size=PAGE_SIZE)
 
     # Overwrite the original response shape to your controller’s expectations
     response["grouped"] = grouped
