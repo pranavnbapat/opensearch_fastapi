@@ -258,8 +258,8 @@ def group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3, include
 
         entry = grouped.setdefault(pid, {
             "parent_id": pid,
-            "projectName": src.get("projectName"),
-            "projectAcronym": src.get("projectAcronym"),
+            "project_name": src.get("project_name"),
+            "project_acronym": src.get("project_acronym"),
             "title": src.get("title"),
             "subtitle": src.get("subtitle"),
             "description": src.get("description"),
@@ -275,13 +275,15 @@ def group_hits_by_parent(hits, parents_size=PAGE_SIZE, top_k_snippets=3, include
             "intended_purposes": src.get("intended_purposes"),
             "project_id": src.get("project_id"),
             "project_type": src.get("project_type"),
-            "projectURL": src.get("projectURL"),
+            "project_url": src.get("project_url"),
             "@id": src.get("@id"),
+            "_orig_id": src.get("_orig_id"),
             "max_score": 0.0,
             **({"snippets": []} if include_snippets else {})
         })
 
-        score = h.get("_score", 0.0)
+        score_raw = h.get("_score")
+        score = score_raw if isinstance(score_raw, (int, float)) else 0.0
 
         if include_snippets:
             hi = h.get("highlight", {}).get("content_chunk", [])

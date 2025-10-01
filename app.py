@@ -223,7 +223,7 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
         "languages": request.languages,
         "category": request.category,
         "project_type": request.project_type,
-        "projectAcronym": request.projectAcronym,
+        "project_acronym": request.project_acronym,
         "locations": request.locations
     }
 
@@ -256,25 +256,38 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
     parents = grouped.get("parents", [])
     total_parents = grouped.get("total_parents", len(parents))
 
-    # Get full texts for these parents
+    # Ask for full text? (optional; defaults to False)
+    include_fulltext = bool(getattr(request, "include_fulltext", False))
+
+    # Only fetch chunks if caller explicitly wants full text AND we have parents
     parent_ids = [p["parent_id"] for p in parents]
-    chunks_map = fetch_chunks_for_parents(index_name, parent_ids) if parent_ids else {}
+    chunks_map = fetch_chunks_for_parents(index_name, parent_ids) if (include_fulltext and parent_ids) else {}
 
     # Parent-level “formatted” result objects
     formatted_results = []
     for p in parents:
         pid = p.get("parent_id")
-        # Convert chunks -> array of strings (like ko_content_flat was originally)
-        ko_chunks = [c["content"] for c in chunks_map.get(pid, [])]
 
-        formatted_results.append({
+        ko_chunks = [c["content"] for c in chunks_map.get(pid, [])] if include_fulltext else None
+
+        doc_date = p.get("date_of_completion")
+        if isinstance(doc_date, str) and len(doc_date) >= 10:
+            try:
+                y, m, d = doc_date[:10].split("-")
+                date_created = f"{d}-{m}-{y}"
+            except Exception:
+                date_created = doc_date
+        else:
+            date_created = None
+
+        item = {
             "_id": pid,
             "_score": p.get("max_score"),
             "title": p.get("title"),
             "subtitle": p.get("subtitle") or "",
             "description": p.get("description"),
-            "projectAcronym": p.get("projectAcronym"),
-            "projectName": p.get("projectName"),
+            "projectAcronym": p.get("project_acronym"),
+            "projectName": p.get("project_name"),
             "project_type": p.get("project_type"),
             "project_id": p.get("project_id"),
             "topics": p.get("topics") or [],
@@ -285,11 +298,17 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
             "category": p.get("category"),
             "subcategories": p.get("subcategories") or [],
             "creators": p.get("creators") or [],
-            "date_of_completion": p.get("date_of_completion"),
-            "ko_content_flat": ko_chunks,
+            "dateCreated": date_created,
             "@id": p.get("@id"),
+            "_orig_id": p.get("_orig_id"),
             "_tags": p.get("keywords") or []
-        })
+        }
+
+        # Attach full text only if requested
+        if include_fulltext:
+            item["ko_content_flat"] = ko_chunks or []
+
+        formatted_results.append(item)
 
     # k override still applies (now to parent results)
     if request.k is not None and request.k > 0:
