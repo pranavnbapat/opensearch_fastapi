@@ -248,7 +248,12 @@ def format_results_neural_search(hit: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def group_hits_by_parent(hits, parents_size=PAGE_SIZE):
+    """
+    Groups collapsed hits by parent_id while PRESERVING the incoming hit order
+    (which already reflects the OpenSearch sort clause).
+    """
     grouped = {}
+    order = []  # keep first-seen parent order
 
     for h in hits:
         src = h.get("_source", {})
@@ -256,41 +261,49 @@ def group_hits_by_parent(hits, parents_size=PAGE_SIZE):
         if not pid:
             continue
 
-        entry = grouped.setdefault(pid, {
-            "parent_id": pid,
-            "project_name": src.get("project_name"),
-            "project_acronym": src.get("project_acronym"),
-            "title": src.get("title"),
-            "subtitle": src.get("subtitle"),
-            "description": src.get("description"),
-            "keywords": src.get("keywords"),
-            "topics": src.get("topics"),
-            "themes": src.get("themes"),
-            "locations": src.get("locations"),
-            "languages": src.get("languages"),
-            "category": src.get("category"),
-            "subcategories": src.get("subcategories"),
-            "date_of_completion": src.get("date_of_completion"),
-            "creators": src.get("creators"),
-            "intended_purposes": src.get("intended_purposes"),
-            "project_id": src.get("project_id"),
-            "project_type": src.get("project_type"),
-            "project_url": src.get("project_url"),
-            "@id": src.get("@id"),
-            "_orig_id": src.get("_orig_id"),
-            "max_score": 0.0,
-        })
+        if pid not in grouped:
+            grouped[pid] = {
+                "parent_id": pid,
+                "project_name": src.get("project_name"),
+                "project_acronym": src.get("project_acronym"),
+                "title": src.get("title"),
+                "subtitle": src.get("subtitle"),
+                "description": src.get("description"),
+                "keywords": src.get("keywords"),
+                "topics": src.get("topics"),
+                "themes": src.get("themes"),
+                "locations": src.get("locations"),
+                "languages": src.get("languages"),
+                "category": src.get("category"),
+                "subcategories": src.get("subcategories"),
+                "date_of_completion": src.get("date_of_completion"),
+                "creators": src.get("creators"),
+                "intended_purposes": src.get("intended_purposes"),
+                "project_id": src.get("project_id"),
+                "project_type": src.get("project_type"),
+                "project_url": src.get("project_url"),
+                "@id": src.get("@id"),
+                "_orig_id": src.get("_orig_id"),
 
+                # include the new date fields so you can see what you sorted by
+                "ko_created_at": src.get("ko_created_at"),
+                "ko_updated_at": src.get("ko_updated_at"),
+                "proj_created_at": src.get("proj_created_at"),
+                "proj_updated_at": src.get("proj_updated_at"),
+
+                "max_score": 0.0,
+            }
+            order.append(pid)
+
+        # track max score per parent (for display/analytics only)
         score_raw = h.get("_score")
         score = score_raw if isinstance(score_raw, (int, float)) else 0.0
+        if score > grouped[pid]["max_score"]:
+            grouped[pid]["max_score"] = score
 
-        if score > entry["max_score"]:
-            entry["max_score"] = score
-
-    parents_ranked = sorted(grouped.values(), key=lambda x: x["max_score"], reverse=True)
-    top_parents = parents_ranked[:parents_size]
-
-    return {"total_parents": len(parents_ranked), "parents": top_parents}
+    # PRESERVE OS order: no re-sorting here
+    parents = [grouped[pid] for pid in order][:parents_size]
+    return {"total_parents": len(order), "parents": parents}
 
 def fetch_chunks_for_parents(index_name: str, parent_ids: list[str]) -> dict[str, list[dict]]:
     """
@@ -335,42 +348,27 @@ def fetch_chunks_for_parents(index_name: str, parent_ids: list[str]) -> dict[str
 
 def build_sort(sort_by: str, has_query: bool):
     """
-    Returns an OpenSearch sort clause based on sort_by and whether there's a query.
-    - For browsing (no query), default to chunk order so pages flow naturally.
-    - For query mode, default to _score desc with a stable tiebreaker.
+    Returns an OpenSearch sort clause for the top-level request.
+    `sort_by` is a canonical string like 'ko_updated_at_desc' or 'score_desc'.
     """
-    if not has_query:
-        # When there's no query, show meta/chunk order deterministically
-        return [{"chunk_index": "asc"}, {"_id": "asc"}]
-
     mapping = {
         "score_desc": [{"_score": "desc"}, {"chunk_index": "asc"}],
         "score_asc":  [{"_score": "asc"},  {"chunk_index": "asc"}],
 
-        "ko_updated_at_desc":  [
-            {"ko_updated_at":  {"order": "desc", "unmapped_type": "date", "missing": "_last"}},
-            {"_score": "desc"}  # secondary tiebreaker
-        ],
-        "ko_updated_at_asc":   [
-            {"ko_updated_at":  {"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
-            {"_score": "desc"}
-        ],
-        "proj_updated_at_desc": [
-            {"proj_updated_at":{"order": "desc", "unmapped_type": "date", "missing": "_last"}},
-            {"_score": "desc"}
-        ],
-        "proj_updated_at_asc":  [
-            {"proj_updated_at":{"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
-            {"_score": "desc"}
-        ],
-
-        # (Optional) Created-at variants, since you indexed them:
         "ko_created_at_desc":  [
             {"ko_created_at":  {"order": "desc", "unmapped_type": "date", "missing": "_last"}},
             {"_score": "desc"}
         ],
         "ko_created_at_asc":   [
             {"ko_created_at":  {"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+        "ko_updated_at_desc":  [
+            {"ko_updated_at":  {"order": "desc", "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+        "ko_updated_at_asc":   [
+            {"ko_updated_at":  {"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
             {"_score": "desc"}
         ],
         "proj_created_at_desc": [
@@ -381,9 +379,15 @@ def build_sort(sort_by: str, has_query: bool):
             {"proj_created_at":{"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
             {"_score": "desc"}
         ],
+        "proj_updated_at_desc": [
+            {"proj_updated_at":{"order": "desc", "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
+        "proj_updated_at_asc":  [
+            {"proj_updated_at":{"order": "asc",  "unmapped_type": "date", "missing": "_last"}},
+            {"_score": "desc"}
+        ],
     }
-
-    # If there is NO query and user didn’t ask for a date sort, show chunks in natural order
     if not has_query and sort_by in ("score_desc", "score_asc"):
         return [{"chunk_index": "asc"}, {"_id": "asc"}]
     return mapping.get(sort_by, mapping["score_desc"])
