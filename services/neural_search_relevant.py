@@ -1,9 +1,56 @@
 # services/neural_search_relevant.py
 
-from pydantic import BaseModel
-from services.utils import (PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client)
-from typing import List, Optional, Dict, Any
+from enum import Enum
+from typing import List, Optional, Dict, Any, Union
 
+from pydantic import BaseModel
+
+from services.utils import (PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client,
+                            group_hits_by_parent, build_sort)
+
+
+class SortBy(str, Enum):
+    score_desc = "score_desc"
+    score_asc  = "score_asc"
+
+    ko_created_at_desc  = "ko_created_at_desc"
+    ko_created_at_asc   = "ko_created_at_asc"
+    ko_updated_at_desc  = "ko_updated_at_desc"
+    ko_updated_at_asc   = "ko_updated_at_asc"
+
+    proj_created_at_desc = "proj_created_at_desc"
+    proj_created_at_asc  = "proj_created_at_asc"
+    proj_updated_at_desc = "proj_updated_at_desc"
+    proj_updated_at_asc  = "proj_updated_at_asc"
+
+NUMERIC_SORT_MAP = {
+    1: SortBy.score_desc,          2: SortBy.score_asc,
+    3: SortBy.ko_created_at_desc,  4: SortBy.ko_created_at_asc,
+    5: SortBy.ko_updated_at_desc,  6: SortBy.ko_updated_at_asc,
+    7: SortBy.proj_created_at_desc,8: SortBy.proj_created_at_asc,
+    9: SortBy.proj_updated_at_desc,10: SortBy.proj_updated_at_asc,
+}
+
+def coerce_sort(raw: Union[None, int, str, SortBy]) -> str:
+    """
+    Accepts Enum | int | str | None and returns a canonical sort key string.
+    Falls back to 'score_desc' on unknown values.
+    """
+    if raw is None:
+        return SortBy.score_desc.value
+    if isinstance(raw, SortBy):
+        return raw.value
+    # numerals (e.g., "3" or 3)
+    try:
+        i = int(raw)
+        return NUMERIC_SORT_MAP.get(i, SortBy.score_desc).value
+    except (TypeError, ValueError):
+        pass
+    s = str(raw).strip().lower()
+    for member in SortBy:
+        if s == member.value:
+            return member.value
+    return SortBy.score_desc.value
 
 class RelevantSearchRequest(BaseModel):
     search_term: str
@@ -12,27 +59,31 @@ class RelevantSearchRequest(BaseModel):
     languages: Optional[List[str]] = None
     category: Optional[List[str]] = None
     project_type: Optional[List[str]] = None
-    projectAcronym: Optional[List[str]] = None
+    project_acronym: Optional[List[str]] = None
     locations: Optional[List[str]] = None
     page: Optional[int] = 1
-    dev: Optional[bool] = False
+    dev: Optional[bool] = True
     k: Optional[int] = None
     model: Optional[str] = "msmarco"
+    include_fulltext: Optional[bool] = False
+    sort_by: Optional[Union[SortBy, int, str]] = SortBy.score_desc
 
 
-def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any], page: int, model_id: str,
-                           use_semantic: bool = True,):
-# def neural_search_relevant(index_name, query, filters, page):
+def neural_search_relevant(
+        index_name: str,
+        query: str,
+        filters: Dict[str, Any],
+        page: int,
+        model_id: str,
+        use_semantic: bool = True
+    ):
     """
-    Perform semantic or BM25-based neural search against OpenSearch.
-
-    :param index_name: Name of the OpenSearch index.
-    :param query: The raw user query string.
-    :param filters: Dictionary of filters (topics, themes, etc.).
-    :param page: Page number for pagination.
-    :param use_semantic: Whether to use OpenSearch's neural search.
-    :return: OpenSearch response as JSON.
+    Perform semantic (neural) or BM25-based search against OpenSearch.
+    - Semantic branch: multiple neural clauses + a light BM25 safety net over TEXT fields.
+    - BM25 branch: multi_match over TEXT fields + small neural assist on content.
+    - Exact acronym matches are handled via a boosted term query on project_acronym (keyword field).
     """
+
     # Pagination offset
     from_offset = (page - 1) * PAGE_SIZE
 
@@ -50,98 +101,115 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
         filter_conditions.append({"terms": {"category": filters["category"]}})
     if filters.get("project_type"):
         filter_conditions.append({"terms": {"project_type": filters["project_type"]}})
-    if filters.get("projectAcronym"):
-        filter_conditions.append({"terms": {"projectAcronym": filters["projectAcronym"]}})
+    if filters.get("project_acronym"):
+        filter_conditions.append({"terms": {"project_acronym": filters["project_acronym"]}})
 
     # Decide query type based on whether search_term is provided
     if not query:
-        query_part = {"match_all": {}}  # Retrieve all documents
+        query_part = {"match_all": {}}
     elif use_semantic:
-        # Neural semantic search
         query_part = {
             "bool": {
                 "should": [
                     {
-                        "neural": {
-                            "title_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
+                        "dis_max": {
+                            "tie_breaker": 0.2,
+                            "queries": [
+                                {"neural": {
+                                    "content_embedding": {
+                                        "query_text": query,
+                                        "model_id": model_id,
+                                        "k": K_VALUE
+                                    }
+                                }
+                                },
+                                {"multi_match": {
+                                    "query": remove_stopwords_from_query(query),
+                                    "fields": [
+                                        "project_name^9", "title^8", "subtitle^7",
+                                        "keywords^7", "description^6", "content_chunk^5"
+                                    ],
+                                    "operator": "and",
+                                    "type": "best_fields"
+                                }
+                                }
+                            ]
                         }
                     },
                     {
                         "neural": {
-                            "subtitle_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
+                        "title_embedding": {
+                            "query_text": query,
+                            "model_id": model_id,
+                            "k": min(K_VALUE, 100)
                         }
+                    }
                     },
-                    {
-                        "neural": {
-                            "description_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
-                        }
-                    },
-                    {
-                        "neural": {
-                            "keywords_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
-                        }
-                    },
-                    {
-                        "neural": {
-                            "content_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
-                        }
-                    },
-                    {
-                        "neural": {
-                            "project_embedding": {
-                                "query_text": query,
-                                "model_id": model_id,
-                                "k": K_VALUE
-                            }
-                        }
-                    },
+                    {"term": {"project_acronym": {"value": query, "boost": 6.0}}}
                 ],
-                "minimum_should_match": 1  # At least one should match
+                "minimum_should_match": 1
             }
         }
     else:
         filtered_query = remove_stopwords_from_query(query)
 
         query_part = {
-            "multi_match": {
-                "query": filtered_query,
-                "fields": [
-                    "projectAcronym^9",
-                    "projectName^9",
-                    "title^8",
-                    "subtitle^7",
-                    "keywords^7",
-                    "description^6",
-                    "content_chunk^5"
-                ]
+            "bool": {
+                "should": [
+                    {
+                        "multi_match": {
+                            "query": filtered_query,
+                            # TEXT fields only
+                            "fields": [
+                                "project_name^9",
+                                "title^8",
+                                "subtitle^7",
+                                "keywords^7",
+                                "description^6",
+                                "content_chunk^5"
+                            ],
+                            "operator": "and",
+                            "type": "best_fields",
+                            "boost": 1.0
+                        }
+                    },
+                    # OPTIONAL: exact acronym boost (only helps if the user typed the exact acronym)
+                    {"term": {"project_acronym": {"value": filtered_query, "boost": 6.0}}},
+                    {
+                        "neural": {
+                            "content_embedding": {
+                                "query_text": query,
+                                "model_id": model_id,
+                                "k": K_VALUE,
+                                "boost": 0.3
+                            }
+                        }
+                    }
+                ],
+                "minimum_should_match": 1
             }
         }
 
+    if not query:
+        must_not = []  # include meta docs so ALL KOs can show up
+    else:
+        must_not = [{"term": {"chunk_index": -1}}]
+
+    raw_sort = (filters or {}).get("sort_by")
+    sort_key = coerce_sort(raw_sort)
 
     # Final OpenSearch query
     search_query = {
         "_source": {
+            "includes": [
+                "parent_id", "project_name", "project_acronym", "title", "subtitle", "description",
+                "keywords", "topics", "themes", "locations", "languages", "category", "subcategories",
+                "date_of_completion", "creators", "intended_purposes", "project_id", "project_type",
+                "project_url", "@id", "_orig_id", "ko_created_at", "ko_updated_at", "proj_created_at",
+                "proj_updated_at",
+            ],
             "excludes": [
+                # vector fields
                 "title_embedding",
                 "subtitle_embedding",
                 "description_embedding",
@@ -151,39 +219,75 @@ def neural_search_relevant(index_name: str, query: str, filters: Dict[str, Any],
                 "content_embedding",
                 "project_embedding",
 
-                "project_acronym_embedding",
+                # raw embedding inputs (not needed in responses)
                 "content_embedding_input",
-                "topics_embedding_input",
                 "keywords_embedding_input",
-                "content_pages_token_counts",
                 "description_embedding_input",
-                "locations_embedding_input",
                 "title_embedding_input",
                 "subtitle_embedding_input",
                 "project_embedding_input",
+
+                "content_chunk"
             ]
         },
         "track_total_hits": True,
         "size": PAGE_SIZE,
         "from": from_offset,
-        "sort": [{"_score": "desc"}],
         "query": {
             "bool": {
                 "must": query_part,
-                "filter": filter_conditions
+                "filter": filter_conditions,
+                "must_not": must_not
             }
         },
+        "collapse": {"field": "parent_id"},
         "aggs": {
+            "unique_parents_total": {
+                "cardinality": {
+                    "field": "parent_id",
+                    "precision_threshold": 40000
+                }
+            },
             "top_projects": {
                 "terms": {
                     "field": "project_id",
                     "size": 3,
-                    "order": { "_count": "desc" }
+                    "order": { "unique_parents": "desc" }
+                },
+                "aggs": {
+                    "unique_parents": {
+                        "cardinality": {
+                            "field": "parent_id",
+                            "precision_threshold": 40000
+                        }
+                    }
                 }
             }
         },
     }
 
+    search_query["sort"] = build_sort(sort_key, has_query=bool(query))
+
+    # raw_fetch_size = PAGE_SIZE * 40
+    # search_query["size"] = raw_fetch_size
+    # search_query["from"] = 0
+
     response = client.search(index=index_name, body=search_query)
+
+    aggs = response.get("aggregations", {})
+    total_parents_from_agg = (
+        aggs.get("unique_parents_total", {}).get("value") if aggs else None
+    )
+
+    # Group current page hits to parents (server-side collapse already helps; this
+    # keeps your existing shape/logic)
+    hits = response["hits"]["hits"]
+    grouped = group_hits_by_parent(hits, parents_size=PAGE_SIZE)
+
+    if total_parents_from_agg is not None:
+        grouped["total_parents"] = int(total_parents_from_agg)
+
+    # Overwrite the original response shape to your controller’s expectations
+    response["grouped"] = grouped
 
     return response

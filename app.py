@@ -80,6 +80,18 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     page_number = max(request.page, 1)
 
     query = request.search_term.strip()
+
+    filters = {
+        "topics": request.topics,
+        "themes": request.themes,
+        "languages": request.languages,
+        "category": request.category,
+        "project_type": request.project_type,
+        "project_acronym": request.project_acronym,
+        "locations": request.locations,
+        "sort_by": getattr(request, "sort_by", None)
+    }
+
     # detected_lang = detect_language(query)
 
     # Translate if not English
@@ -91,16 +103,6 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     #         logger.error(f"Failed to translate non-English query: {e}")
     # else:
     #     logger.info(f"Skipping translation for language: {detected_lang}")
-
-    filters = {
-        "topics": request.topics,
-        "themes": request.themes,
-        "languages": request.languages,
-        "category": request.category,
-        "project_type": request.project_type,
-        "projectAcronym": request.projectAcronym,
-        "locations": request.locations
-    }
 
     # Smart fallback to BM25 if query is short
     if len(query.split()) <= 5:
@@ -127,46 +129,69 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         use_semantic=use_semantic
     )
 
-    total_results = response["hits"]["total"]["value"]
-    total_pages = (total_results + PAGE_SIZE - 1) // PAGE_SIZE
-    results = response["hits"]["hits"]
+    grouped = response.get("grouped", {})
+    parents = grouped.get("parents", [])
 
-    #################### Code below lists top 3 projects from this page
-    # Build project aggregation from search results
-    project_counter = {}
+    # Prefer the total we injected from the aggregation; fall back safely
+    total_parents = grouped.get("total_parents")
+    if total_parents is None:
+        total_parents = len(parents)
 
-    for hit in results:
-        source = hit["_source"]
-        project_id = source.get("project_id", "Unknown ID")
+    # Ask for full text? (optional; defaults to False)
+    include_fulltext = bool(getattr(request, "include_fulltext", False))
 
-        project_counter[project_id] = project_counter.get(project_id, 0) + 1
+    # Only fetch chunks if caller explicitly wants full text AND we have parents
+    parent_ids = [p["parent_id"] for p in parents]
+    chunks_map = fetch_chunks_for_parents(index_name, parent_ids) if (include_fulltext and parent_ids) else {}
 
-    # Sort by count, descending
-    sorted_projects = sorted(project_counter.items(), key=lambda x: x[1], reverse=True)
+    # Parent-level “formatted” result objects
+    formatted_results = []
+    for p in parents:
+        pid = p.get("parent_id")
 
-    # Take top 3 only
-    top_3_projects = sorted_projects[:3]
-    ####################
+        ko_chunks = [c["content"] for c in chunks_map.get(pid, [])] if include_fulltext else None
 
-    ##################### Code below lists top 3 projects from the entire resultset
-    aggregations = response.get("aggregations", {})
-    top_projects_buckets = aggregations.get("top_projects", {}).get("buckets", [])
+        doc_date = p.get("date_of_completion")
+        if isinstance(doc_date, str) and len(doc_date) >= 10:
+            try:
+                y, m, d = doc_date[:10].split("-")
+                date_created = f"{d}-{m}-{y}"
+            except Exception:
+                date_created = doc_date
+        else:
+            date_created = None
 
-    related_projects_2 = []
-    for bucket in top_projects_buckets:
-        acronym = bucket["key"]
-        related_projects_2.append({
-            "project_id": acronym,
-            "count": bucket["doc_count"]
-        })
-    ####################
+        item = {
+            "_id": pid,
+            "_score": p.get("max_score"),
+            "title": p.get("title"),
+            "subtitle": p.get("subtitle") or "",
+            "description": p.get("description"),
+            "projectAcronym": p.get("project_acronym"),
+            "projectName": p.get("project_name"),
+            "project_type": p.get("project_type"),
+            "project_id": p.get("project_id"),
+            "topics": p.get("topics") or [],
+            "themes": p.get("themes") or [],
+            "keywords": p.get("keywords") or [],
+            "languages": p.get("languages") or [],
+            "locations": p.get("locations") or [],
+            "category": p.get("category"),
+            "subcategories": p.get("subcategories") or [],
+            "creators": p.get("creators") or [],
+            "dateCreated": date_created,
+            "@id": p.get("@id"),
+            "_orig_id": p.get("_orig_id"),
+            "_tags": p.get("keywords") or []
+        }
 
-    # Perform Analysis on Search Results
-    # analysis = analyze_search_results(results)
+        # Attach full text only if requested
+        if include_fulltext:
+            item["ko_content_flat"] = ko_chunks or []
 
-    formatted_results = [format_results_neural_search(hit) for hit in results]
+        formatted_results.append(item)
 
-    # If k is provided, override pagination and return top-k only
+    # k override still applies (now to parent results)
     if request.k is not None and request.k > 0:
         formatted_results = formatted_results[:request.k]
         pagination = {
@@ -177,24 +202,41 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
             "prev_page": None
         }
     else:
+        total_pages = (total_parents + PAGE_SIZE - 1) // PAGE_SIZE
         pagination = {
-            "total_records": total_results,
+            "total_records": total_parents,
             "current_page": page_number,
             "total_pages": total_pages,
             "next_page": page_number + 1 if page_number < total_pages else None,
             "prev_page": page_number - 1 if page_number > 1 else None
         }
 
+    page_counts = {}
+    for item in formatted_results:  # use 'parents' if you want pre-k truncation
+        pid = item.get("project_id")
+        if pid:
+            page_counts[pid] = page_counts.get(pid, 0) + 1
+
+    related_projects_from_this_page = [
+        {"project_id": k, "count": v}
+        for k, v in sorted(page_counts.items(), key=lambda x: x[1], reverse=True)[:3]  # drop [:3] to return all
+    ]
+
+    aggs = response.get("aggregations", {})
+    buckets = aggs.get("top_projects", {}).get("buckets", [])
+    related_projects_all = [
+        {
+            "project_id": b.get("key"),
+            "count": b.get("unique_parents", {}).get("value", 0)
+        }
+        for b in buckets
+    ]
+
+    # project counts: your earlier logic can stay, but now work off parent-level data if you wish.
     response_json = {
         "data": formatted_results,
-        "related_projects_from_this_page": [
-            {
-                "project_id": pid,
-                "count": count
-            }
-            for pid, count in top_3_projects
-        ],
-        "related_projects_from_entire_resultset": related_projects_2,
+        "related_projects_from_this_page": related_projects_from_this_page,
+        "related_projects_from_entire_resultset": related_projects_all,
         "pagination": pagination
     }
 
