@@ -9,7 +9,8 @@ from starlette.middleware.cors import CORSMiddleware
 #from models.embedding import select_model, generate_vector, generate_vector_neural_search
 # from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
-from services.neural_search_relevant_new import neural_search_relevant_new, RelevantSearchRequestNew
+from services.neural_search_relevant_new import (neural_search_relevant_new, RelevantSearchRequestNew,
+                                                 split_query_into_fragments, score_chunk_for_fragments)
 # from services.project_search import project_search, ProjectSearchRequest
 from services.recommender import recommend_similar, RecommenderRequest, recommend_similar_cos
 from services.hybrid_search import hybrid_search_local, hybrid_search
@@ -259,6 +260,8 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
 
     query = request.search_term.strip()
 
+    query_fragments = split_query_into_fragments(query)
+
     filters = {
         "topics": request.topics,
         "themes": request.themes,
@@ -311,7 +314,61 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
     for p in parents:
         pid = p.get("parent_id")
 
-        ko_chunks = [c["content"] for c in chunks_map.get(pid, [])] if include_fulltext else None
+        # --- NEW: rerank chunks for this parent based on query fragments ---
+        if include_fulltext:
+            raw_chunks = chunks_map.get(pid, [])  # whatever fetch_chunks_for_parents returns
+            ko_chunks = []
+
+            if raw_chunks:
+                scored_chunks = []
+                for ch in raw_chunks:
+                    # adapt key name if your chunk field is different
+                    chunk_text = ch.get("content") or ch.get("content_chunk") or ""
+                    stats = score_chunk_for_fragments(chunk_text, query_fragments)
+
+                    # Simple weighted score; feel free to tune these weights
+                    final_chunk_score = (
+                            0.5 * stats["coverage"] +
+                            0.3 * stats["avg_score"] +
+                            0.2 * stats["max_score"]
+                    )
+
+                    scored_chunks.append({
+                        "text": chunk_text,
+                        "score": final_chunk_score,
+                        # keep original index if you want later
+                        "chunk_index": ch.get("chunk_index"),
+                        "stats": stats,
+                    })
+
+                # sort by our custom score, highest first
+                scored_chunks.sort(key=lambda x: x["score"], reverse=True)
+
+                # we only expose the text list for now, like before
+                ko_chunks = [s["text"] for s in scored_chunks]
+
+                ko_chunks_scored = [
+                    {
+                        "text": s["text"],
+                        "score": s["score"],
+                        "chunk_index": s.get("chunk_index"),
+                        "coverage": s["stats"]["coverage"],
+                        "avg_score": s["stats"]["avg_score"],
+                        "max_score": s["stats"]["max_score"],
+                        # if you added phrase_hits:
+                        "phrase_hits": s["stats"].get("phrase_hits"),
+                    }
+                    for s in scored_chunks
+                ]
+            else:
+                ko_chunks = None
+                ko_chunks_scored = None
+        else:
+            ko_chunks = None
+            ko_chunks_scored = None
+        # --- END NEW CHUNK RERANKING BLOCK ---
+
+        # ko_chunks = [c["content"] for c in chunks_map.get(pid, [])] if include_fulltext else None
 
         doc_date = p.get("date_of_completion")
         if isinstance(doc_date, str) and len(doc_date) >= 10:
@@ -350,6 +407,7 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
         # Attach full text only if requested
         if include_fulltext:
             item["ko_content_flat"] = ko_chunks or []
+            item["ko_content_scored"] = ko_chunks_scored or []
 
         formatted_results.append(item)
 

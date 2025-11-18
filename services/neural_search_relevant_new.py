@@ -1,5 +1,7 @@
 # services/neural_search_relevant_new.py
 
+import re
+
 from enum import Enum
 from typing import List, Optional, Dict, Any, Union
 
@@ -8,6 +10,72 @@ from pydantic import BaseModel
 from services.utils import (PAGE_SIZE, remove_stopwords_from_query, K_VALUE, client,
                             group_hits_by_parent, build_sort)
 
+
+WORD_RE = re.compile(r"\w+", re.UNICODE)
+
+def tokenize(text: str) -> List[str]:
+    """
+    Very simple tokenizer: lowercase + word characters.
+    """
+    if not text:
+        return []
+    return WORD_RE.findall(text.lower())
+
+def split_query_into_fragments(query: str) -> List[str]:
+    """
+    Split user query into fragments on basic separators (and, &, +, comma, semicolon).
+    Fallback to the whole query if nothing useful appears.
+    """
+    if not query:
+        return []
+
+    q = query.strip()
+
+    parts = re.split(r"\b(?:and|&|\+|,|;)\b", q, flags=re.IGNORECASE)
+    fragments = []
+    for p in parts:
+        frag = p.strip()
+        if len(frag) >= 3:
+            fragments.append(frag)
+
+    return fragments or [q]
+
+def score_chunk_for_fragments(chunk_text: str, fragments: List[str]) -> dict:
+    """
+    Compute simple lexical overlap-based scores between a chunk and all fragments.
+
+    Returns:
+        {
+            "coverage": fraction of fragments with any overlap (0..1),
+            "avg_score": average overlap score per fragment (0..1),
+            "max_score": best overlap score among fragments (0..1),
+        }
+    """
+    chunk_tokens = tokenize(chunk_text)
+    if not chunk_tokens or not fragments:
+        return {"coverage": 0.0, "avg_score": 0.0, "max_score": 0.0}
+
+    chunk_token_set = set(chunk_tokens)
+
+    frag_scores = []
+    for frag in fragments:
+        frag_tokens = tokenize(frag)
+        if not frag_tokens:
+            continue
+
+        # overlap fraction of fragment tokens appearing in the chunk
+        overlap = sum(1 for t in frag_tokens if t in chunk_token_set)
+        score = overlap / len(frag_tokens)
+        frag_scores.append(score)
+
+    if not frag_scores:
+        return {"coverage": 0.0, "avg_score": 0.0, "max_score": 0.0}
+
+    coverage = sum(1 for s in frag_scores if s > 0) / len(fragments)
+    avg_score = sum(frag_scores) / len(frag_scores)
+    max_score = max(frag_scores)
+
+    return {"coverage": coverage, "avg_score": avg_score, "max_score": max_score}
 
 class SortBy(str, Enum):
     score_desc = "score_desc"
