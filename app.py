@@ -213,7 +213,7 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         }
 
     page_counts = {}
-    for item in formatted_results:  # use 'parents' if you want pre-k truncation
+    for item in formatted_results:
         pid = item.get("project_id")
         if pid:
             page_counts[pid] = page_counts.get(pid, 0) + 1
@@ -233,7 +233,6 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         for b in buckets
     ]
 
-    # project counts: your earlier logic can stay, but now work off parent-level data if you wish.
     response_json = {
         "data": formatted_results,
         "related_projects_from_this_page": related_projects_from_this_page,
@@ -322,7 +321,6 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
             if raw_chunks:
                 scored_chunks = []
                 for ch in raw_chunks:
-                    # adapt key name if your chunk field is different
                     chunk_text = ch.get("content") or ch.get("content_chunk") or ""
                     stats = score_chunk_for_fragments(chunk_text, query_fragments)
 
@@ -336,7 +334,6 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
                     scored_chunks.append({
                         "text": chunk_text,
                         "score": final_chunk_score,
-                        # keep original index if you want later
                         "chunk_index": ch.get("chunk_index"),
                         "stats": stats,
                     })
@@ -355,7 +352,6 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
                         "coverage": s["stats"]["coverage"],
                         "avg_score": s["stats"]["avg_score"],
                         "max_score": s["stats"]["max_score"],
-                        # if you added phrase_hits:
                         "phrase_hits": s["stats"].get("phrase_hits"),
                     }
                     for s in scored_chunks
@@ -432,7 +428,7 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
         }
 
     page_counts = {}
-    for item in formatted_results:  # use 'parents' if you want pre-k truncation
+    for item in formatted_results:
         pid = item.get("project_id")
         if pid:
             page_counts[pid] = page_counts.get(pid, 0) + 1
@@ -452,7 +448,6 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
         for b in buckets
     ]
 
-    # project counts: your earlier logic can stay, but now work off parent-level data if you wish.
     response_json = {
         "data": formatted_results,
         "related_projects_from_this_page": related_projects_from_this_page,

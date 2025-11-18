@@ -338,7 +338,6 @@ def neural_search_relevant_new(
     hits = response["hits"]["hits"]
     grouped = group_hits_by_parent(hits, parents_size=PAGE_SIZE)
 
-    # Overwrite the original response shape to your controller’s expectations
     response["grouped"] = grouped
 
     return response

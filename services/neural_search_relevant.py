@@ -279,15 +279,12 @@ def neural_search_relevant(
         aggs.get("unique_parents_total", {}).get("value") if aggs else None
     )
 
-    # Group current page hits to parents (server-side collapse already helps; this
-    # keeps your existing shape/logic)
     hits = response["hits"]["hits"]
     grouped = group_hits_by_parent(hits, parents_size=PAGE_SIZE)
 
     if total_parents_from_agg is not None:
         grouped["total_parents"] = int(total_parents_from_agg)
 
-    # Overwrite the original response shape to your controller’s expectations
     response["grouped"] = grouped
 
     return response
