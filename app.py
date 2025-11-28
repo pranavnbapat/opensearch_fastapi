@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
 
 #from models.embedding import select_model, generate_vector, generate_vector_neural_search
-# from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
+from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
 from services.neural_search_relevant_new import (neural_search_relevant_new, RelevantSearchRequestNew,
                                                  split_query_into_fragments, score_chunk_for_fragments)
@@ -16,7 +16,7 @@ from services.recommender import recommend_similar, RecommenderRequest, recommen
 from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.validate_and_analyse_results import analyze_search_results
 from services.utils import (PAGE_SIZE, BASIC_AUTH_PASS, BASIC_AUTH_USER, MODEL_CONFIG, MultiUserTimedAuthMiddleware,
-                            format_results_neural_search, fetch_chunks_for_parents)
+                            format_results_neural_search, fetch_chunks_for_parents, translate_query_to_english)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -93,9 +93,26 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         "sort_by": getattr(request, "sort_by", None)
     }
 
-    # detected_lang = detect_language(query)
+    detected_lang = detect_language(query).lower()
+
+    if detected_lang != "en":
+        try:
+            translated_query = await translate_query_to_english(query)
+            logger.info(
+                f"Detected non-English query language '{detected_lang}', "
+                f"translated to English: {translated_query}"
+            )
+            query = translated_query
+        except Exception as e:
+            logger.error(
+                f"Failed to translate non-English query from '{detected_lang}' "
+                f"to English, using original. Error: {e}"
+            )
+    else:
+        logger.info("Query detected as English; skipping translation.")
 
     # Translate if not English
+
     # if detected_lang != "en" and detected_lang.upper() in DEEPL_SUPPORTED_LANGUAGES:
     #     try:
     #         query = translate_text_with_backoff(query, target_language="EN")
@@ -331,9 +348,12 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
                             0.2 * stats["max_score"]
                     )
 
+                    final_chunk_score_pct = final_chunk_score * 100.0
+
                     scored_chunks.append({
                         "text": chunk_text,
                         "score": final_chunk_score,
+                        "score_pct": final_chunk_score_pct,
                         "chunk_index": ch.get("chunk_index"),
                         "stats": stats,
                     })
@@ -348,6 +368,7 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
                     {
                         "text": s["text"],
                         "score": s["score"],
+                        "score_pct": s["score"] * 100,
                         "chunk_index": s.get("chunk_index"),
                         "coverage": s["stats"]["coverage"],
                         "avg_score": s["stats"]["avg_score"],
@@ -406,6 +427,21 @@ async def neural_search_relevant_endpoint_new(request_temp: Request, request: Re
             item["ko_content_scored"] = ko_chunks_scored or []
 
         formatted_results.append(item)
+
+    # --- Normalise parent scores 0–100 (per response) ---
+    scores = [item["_score"] for item in formatted_results if item.get("_score") is not None]
+
+    if scores:
+        s_min = min(scores)
+        s_max = max(scores)
+        span = s_max - s_min or 1.0  # avoid division by zero
+
+        for item in formatted_results:
+            raw = item.get("_score")
+            if raw is None:
+                item["score_norm_0_100"] = None
+            else:
+                item["score_norm_0_100"] = 100.0 * (raw - s_min) / span
 
     # k override still applies (now to parent results)
     if request.k is not None and request.k > 0:

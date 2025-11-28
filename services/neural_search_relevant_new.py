@@ -71,8 +71,12 @@ def score_chunk_for_fragments(chunk_text: str, fragments: List[str]) -> dict:
     if not frag_scores:
         return {"coverage": 0.0, "avg_score": 0.0, "max_score": 0.0}
 
+    # how many of ALL fragments had any overlap
     coverage = sum(1 for s in frag_scores if s > 0) / len(fragments)
-    avg_score = sum(frag_scores) / len(frag_scores)
+
+    # treat non-overlapping fragments as 0, so divide by total #fragments
+    avg_score = sum(frag_scores) / len(fragments)
+
     max_score = max(frag_scores)
 
     return {"coverage": coverage, "avg_score": avg_score, "max_score": max_score}

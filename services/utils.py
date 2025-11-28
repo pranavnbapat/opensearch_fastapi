@@ -1,6 +1,8 @@
 # services/utils.py
 
 import base64
+import httpx
+import logging
 import nltk
 import numpy as np
 import os
@@ -19,6 +21,17 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 from typing import Dict, Any
 
 load_dotenv()
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Translation service config
+TRANSLATE_API_URL = os.getenv(
+    "TRANSLATE_API_URL",
+    "https://um-translate.nexavion.com/translate",
+)
+TRANSLATE_MODEL = os.getenv("TRANSLATE_MODEL", "m2m_100_418M")
 
 def get_stopwords(lang="english"):
     try:
@@ -392,3 +405,28 @@ def build_sort(sort_by: str, has_query: bool):
         return [{"chunk_index": "asc"}, {"_id": "asc"}]
     return mapping.get(sort_by, mapping["score_desc"])
 
+
+async def translate_query_to_english(text: str) -> str:
+    """
+    Call the um-translate service.
+    - Auto-detect source language on the translate service side.
+    - If source is not English, it will translate to English by default.
+    - If already English, it returns the original text.
+    """
+    payload = {
+        "text": text,
+        "model": TRANSLATE_MODEL,  # m2m_100_418M by default
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(TRANSLATE_API_URL, json=payload)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"Translation API call failed: {e}")
+        # Fail safe: use original text if translation fails
+        return text
+
+    data = resp.json()
+    translated = data.get("translation", text)
+    return translated
