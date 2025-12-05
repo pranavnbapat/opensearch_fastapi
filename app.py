@@ -93,26 +93,27 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         "sort_by": getattr(request, "sort_by", None)
     }
 
-    detected_lang = detect_language(query).lower()
+    # ------------------------------------ Custom Translation ------------------------------------#
+    # detected_lang = detect_language(query).lower()
+    # if detected_lang != "en":
+    #     try:
+    #         translated_query = await translate_query_to_english(query)
+    #         logger.info(
+    #             f"Detected non-English query language '{detected_lang}', "
+    #             f"translated to English: {translated_query}"
+    #         )
+    #         query = translated_query
+    #     except Exception as e:
+    #         logger.error(
+    #             f"Failed to translate non-English query from '{detected_lang}' "
+    #             f"to English, using original. Error: {e}"
+    #         )
+    # else:
+    #     logger.info("Query detected as English; skipping translation.")
 
-    if detected_lang != "en":
-        try:
-            translated_query = await translate_query_to_english(query)
-            logger.info(
-                f"Detected non-English query language '{detected_lang}', "
-                f"translated to English: {translated_query}"
-            )
-            query = translated_query
-        except Exception as e:
-            logger.error(
-                f"Failed to translate non-English query from '{detected_lang}' "
-                f"to English, using original. Error: {e}"
-            )
-    else:
-        logger.info("Query detected as English; skipping translation.")
 
+    #------------------------------------ DeepL Translation ------------------------------------#
     # Translate if not English
-
     # if detected_lang != "en" and detected_lang.upper() in DEEPL_SUPPORTED_LANGUAGES:
     #     try:
     #         query = translate_text_with_backoff(query, target_language="EN")
