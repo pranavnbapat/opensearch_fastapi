@@ -67,6 +67,7 @@ class RelevantSearchRequest(BaseModel):
     model: Optional[str] = "msmarco"
     include_fulltext: Optional[bool] = False
     sort_by: Optional[Union[SortBy, int, str]] = SortBy.score_desc
+    access_token: Optional[str] = None
 
 
 def neural_search_relevant(

@@ -2,6 +2,8 @@
 
 import logging
 
+import httpx
+
 from datetime import datetime
 from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
@@ -16,7 +18,8 @@ from services.recommender import recommend_similar, RecommenderRequest, recommen
 from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.validate_and_analyse_results import analyze_search_results
 from services.utils import (PAGE_SIZE, BASIC_AUTH_PASS, BASIC_AUTH_USER, MODEL_CONFIG, MultiUserTimedAuthMiddleware,
-                            format_results_neural_search, fetch_chunks_for_parents, translate_query_to_english)
+                            format_results_neural_search, fetch_chunks_for_parents, translate_query_to_english,
+                            is_translation_allowed)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,26 +64,17 @@ app.add_middleware(
           You can optionally pass `model` (default is `msmarco`) and `k` to get only the top-k ranked results 
           (no pagination).""")
 async def neural_search_relevant_endpoint(request_temp: Request, request: RelevantSearchRequest):
-    # client_host = request_temp.client.host
-    # user_agent = request_temp.headers.get("user-agent")
-    # referer = request_temp.headers.get("referer")
-    # origin = request_temp.headers.get("origin")
-    # full_url = str(request_temp.url)
-    #
-    # print("###############")
-    # logger.info(f"Search request from IP: {client_host}")
-    # logger.info(f"User-Agent: {user_agent}")
-    # logger.info(f"Referer: {referer}")
-    # logger.info(f"Origin: {origin}")
-    # logger.info(f"Full request URL: {full_url}")
-    # print("\n\n")
-
-    # logger.info(
-    #     f"Search Query: '{request.search_term}', Semantic: {request.use_semantic}, Index: {'neural_search_index_dev' if request.dev else 'neural_search_index'}, Page: {max(request.page, 1)}")
 
     page_number = max(request.page, 1)
 
     query = request.search_term.strip()
+
+    access_token = request.access_token
+    if access_token:
+        # Only validate when token is actually supplied
+        translation_allowed = await is_translation_allowed(access_token, bool(request.dev))
+    else:
+        translation_allowed = False
 
     filters = {
         "topics": request.topics,
@@ -114,14 +108,29 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
 
     #------------------------------------ DeepL Translation ------------------------------------#
     # Translate if not English
-    # if detected_lang != "en" and detected_lang.upper() in DEEPL_SUPPORTED_LANGUAGES:
-    #     try:
-    #         query = translate_text_with_backoff(query, target_language="EN")
-    #         logger.info(f"Translated query to English: {query}")
-    #     except Exception as e:
-    #         logger.error(f"Failed to translate non-English query: {e}")
-    # else:
-    #     logger.info(f"Skipping translation for language: {detected_lang}")
+    if translation_allowed:
+        try:
+            detected_lang = detect_language(query).lower()
+        except Exception as e:
+            logger.error(f"Failed to detect language for query '{query}': {e}")
+            detected_lang = "en"
+
+        if detected_lang != "en" and detected_lang.upper() in DEEPL_SUPPORTED_LANGUAGES:
+            try:
+                query = translate_text_with_backoff(query, target_language="EN")
+                logger.info(
+                    f"Translated query to English "
+                    f"(detected: {detected_lang}): {query}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to translate non-English query: {e}")
+        else:
+            logger.info(
+                f"Skipping translation: detected_lang={detected_lang}, "
+                f"supported={detected_lang.upper() in DEEPL_SUPPORTED_LANGUAGES}"
+            )
+    else:
+        logger.info("No access token provided; skipping translation.")
 
     # Smart fallback to BM25 if query is short
     if len(query.split()) <= 5:

@@ -430,3 +430,53 @@ async def translate_query_to_english(text: str) -> str:
     data = resp.json()
     translated = data.get("translation", text)
     return translated
+
+
+VALIDATE_ACCESS_TOKEN_DEV_URL = os.getenv(
+    "VALIDATE_ACCESS_TOKEN_DEV_URL",
+    "https://backend-admin.dev.farmbook.ugent.be/fastapi/validate_access_token/",
+)
+
+VALIDATE_ACCESS_TOKEN_PRD_URL = os.getenv(
+    "VALIDATE_ACCESS_TOKEN_PRD_URL",
+    "https://backend-admin.prd.farmbook.ugent.be/fastapi/validate_access_token/",
+)
+
+async def is_translation_allowed(access_token: str | None, is_dev: bool) -> bool:
+    """
+    Check with the Django backend whether the given access_token is valid.
+    """
+    if not access_token:
+        return False
+
+    url = VALIDATE_ACCESS_TOKEN_DEV_URL if is_dev else VALIDATE_ACCESS_TOKEN_PRD_URL
+
+    try:
+        # Use a short timeout so search is not blocked too long by auth issues
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(url, json={"access_token": access_token})
+
+        if resp.status_code != 200:
+            logger.warning(
+                f"Access token validation failed with HTTP {resp.status_code} "
+                f"for URL {url}"
+            )
+            return False
+
+        data = resp.json()
+        # Django validate_access_token_api returns: {'status': 'success', ...} on success
+        status_value = data.get("status")
+        if status_value == "success":
+            logger.info("Access token valid; enabling DeepL translation.")
+            return True
+
+        logger.warning(
+            f"Access token not accepted by backend: {data!r}"
+        )
+        return False
+
+    except Exception as e:
+        # On any error (network, JSON, etc.), fail closed: no translation
+        logger.error(f"Error while validating access token for translation: {e}")
+        return False
+
