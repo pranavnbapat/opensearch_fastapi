@@ -66,6 +66,7 @@ class RelevantSearchRequest(BaseModel):
     k: Optional[int] = None
     model: Optional[str] = "msmarco"
     include_fulltext: Optional[bool] = False
+    include_summary: Optional[bool] = False
     sort_by: Optional[Union[SortBy, int, str]] = SortBy.score_desc
     access_token: Optional[str] = None
 
@@ -77,7 +78,7 @@ def neural_search_relevant(
         page: int,
         model_id: str,
         use_semantic: bool = True
-    ):
+):
     """
     Perform semantic (neural) or BM25-based search against OpenSearch.
     - Semantic branch: multiple neural clauses + a light BM25 safety net over TEXT fields.

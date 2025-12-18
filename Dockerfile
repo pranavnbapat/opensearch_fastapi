@@ -9,15 +9,6 @@ WORKDIR /app
 # Copy dependency list first (improves caching)
 COPY requirements.txt .
 
-# Install system dependencies, upgrade pip, install Python packages, download NLTK stopwords
-#RUN apt-get update && apt-get install -y \
-#    g++ cmake libffi-dev libssl-dev wget nano \
-#    && rm -rf /var/lib/apt/lists/* \
-#    && pip install --upgrade pip \
-#    && pip install --no-cache-dir -r requirements.txt \
-#    && pip install --no-cache-dir 'huggingface_hub[hf_xet]' \
-#    && python -m nltk.downloader stopwords
-
 # Install OS deps, then Python deps with a persistent pip cache
 RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ cmake libffi-dev libssl-dev wget nano \
@@ -30,7 +21,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # NLTK data (network fetch at build time)
 RUN python -m nltk.downloader stopwords
-
 
 # Copy the rest of the project files
 COPY . .

@@ -1,8 +1,7 @@
 # app.py
 
 import logging
-
-# import httpx
+import os
 import time
 
 from contextlib import asynccontextmanager
@@ -18,6 +17,8 @@ from services.neural_search_relevant_new import (neural_search_relevant_new, Rel
                                                  split_query_into_fragments, score_chunk_for_fragments)
 # from services.project_search import project_search, ProjectSearchRequest
 from services.recommender import recommend_similar, RecommenderRequest, recommend_similar_cos
+from services.summariser import summarise_top5 as summarise_top5_ollama
+from services.summariser_hf import summarise_top5_hf
 from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.validate_and_analyse_results import analyze_search_results
 from services.utils import (PAGE_SIZE, BASIC_AUTH_PASS, BASIC_AUTH_USER, MODEL_CONFIG, MultiUserTimedAuthMiddleware,
@@ -70,6 +71,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+SUMMARY_PROVIDER = os.getenv("SUMMARY_PROVIDER", "ollama").lower()
 
 @app.post("/neural_search_relevant", tags=["Search"],
           summary="Context-aware neural search with smart fallback",
@@ -197,7 +200,7 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         filters=filters,
         page=page_number,
         model_id=model_id,
-        use_semantic=use_semantic
+        use_semantic=use_semantic,
     )
 
     grouped = response.get("grouped", {})
@@ -303,7 +306,17 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         for b in buckets
     ]
 
+    summary = None
+    if bool(getattr(request, "include_summary", False)):
+        logger.info("include_summary=%s, formatted_results=%d",
+                    bool(getattr(request, "include_summary", False)), len(formatted_results))
+        if SUMMARY_PROVIDER == "hf":
+            summary = await summarise_top5_hf(query=query, hits=formatted_results)
+        else:
+            summary = await summarise_top5_ollama(query=query, hits=formatted_results)
+
     response_json = {
+        "summary": summary,
         "data": formatted_results,
         "related_projects_from_this_page": related_projects_from_this_page,
         "related_projects_from_entire_resultset": related_projects_all,
@@ -331,8 +344,7 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         if item.get("_id")
     ][:MAX_LOG_RESULTS]
 
-    logger.info("Logging %d result_orig_ids; first=%s",
-                len(result_orig_ids), result_orig_ids[0] if result_orig_ids else None)
+    # logger.info("Logging %d result_orig_ids; first=%s", len(result_orig_ids), result_orig_ids[0] if result_orig_ids else None)
 
     event = build_search_event(
         endpoint="/neural_search_relevant",
