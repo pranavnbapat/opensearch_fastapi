@@ -2,6 +2,7 @@
 
 import base64
 import httpx
+import json
 import logging
 import nltk
 import numpy as np
@@ -11,6 +12,8 @@ from collections import defaultdict
 from datetime import datetime
 from dotenv import load_dotenv
 from functools import lru_cache
+from typing import Dict, Any, Optional
+
 from nltk.corpus import stopwords
 from opensearchpy import OpenSearch, RequestsHttpConnection
 from sentence_transformers import SentenceTransformer
@@ -18,7 +21,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.requests import Request
 from starlette.status import HTTP_401_UNAUTHORIZED
-from typing import Dict, Any
 
 load_dotenv()
 
@@ -480,3 +482,20 @@ async def is_translation_allowed(access_token: str | None, is_dev: bool) -> bool
         logger.error(f"Error while validating access token for translation: {e}")
         return False
 
+def jwt_claim(token: str, key: str) -> Optional[str]:
+    """Extract a claim from JWT payload without verifying signature (analytics only)."""
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None
+
+        payload_b64 = parts[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)  # base64url padding
+
+        payload = json.loads(
+            base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+        )
+        val = payload.get(key)
+        return str(val) if val is not None else None
+    except Exception:
+        return None

@@ -2,13 +2,16 @@
 
 import logging
 
-import httpx
+# import httpx
+import time
 
+from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
 
 #from models.embedding import select_model, generate_vector, generate_vector_neural_search
+from services.clickhouse_logger import make_default_clickhouse_logger, build_search_event
 from services.language_detect import detect_language, translate_text_with_backoff, DEEPL_SUPPORTED_LANGUAGES
 from services.neural_search_relevant import neural_search_relevant, RelevantSearchRequest
 from services.neural_search_relevant_new import (neural_search_relevant_new, RelevantSearchRequestNew,
@@ -19,10 +22,24 @@ from services.hybrid_search import hybrid_search_local, hybrid_search
 # from services.validate_and_analyse_results import analyze_search_results
 from services.utils import (PAGE_SIZE, BASIC_AUTH_PASS, BASIC_AUTH_USER, MODEL_CONFIG, MultiUserTimedAuthMiddleware,
                             format_results_neural_search, fetch_chunks_for_parents, translate_query_to_english,
-                            is_translation_allowed)
+                            is_translation_allowed, jwt_claim)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+ch_logger = make_default_clickhouse_logger()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the background ClickHouse flush task
+    await ch_logger.start()
+    try:
+        yield
+    finally:
+        # Flush remaining events and close http client
+        await ch_logger.stop()
+
 
 ALLOWED_USERS = {
     BASIC_AUTH_USER: {
@@ -35,7 +52,7 @@ ALLOWED_USERS = {
     }
 }
 
-app = FastAPI(title="OpenSearch API", version="1.0")
+app = FastAPI(title="OpenSearch API", version="1.0", lifespan=lifespan)
 # app.add_middleware(BasicAuthMiddleware, username=BASIC_AUTH_USER, password=BASIC_AUTH_PASS)
 app.add_middleware(MultiUserTimedAuthMiddleware, users=ALLOWED_USERS)
 
@@ -64,17 +81,42 @@ app.add_middleware(
           You can optionally pass `model` (default is `msmarco`) and `k` to get only the top-k ranked results 
           (no pagination).""")
 async def neural_search_relevant_endpoint(request_temp: Request, request: RelevantSearchRequest):
+    # --- DEBUG: raw inbound request body (includes access_token if sent) ---
+    try:
+        raw_payload = await request_temp.json()
+    except Exception:
+        raw_payload = None
+
+    logger.info("Raw /neural_search_relevant payload keys=%s",
+                list(raw_payload.keys()) if isinstance(raw_payload, dict) else type(raw_payload))
+    logger.info("Raw access_token present=%s", isinstance(raw_payload, dict) and "access_token" in raw_payload)
+    # If you want to see only a safe preview (don’t log full token):
+    if isinstance(raw_payload, dict) and raw_payload.get("access_token"):
+        tok = str(raw_payload["access_token"])
+        logger.info("Raw access_token preview=%s...%s (len=%d)", tok[:6], tok[-4:], len(tok))
 
     page_number = max(request.page, 1)
 
     query = request.search_term.strip()
 
+    t0 = time.monotonic()
+    original_query = query
+
+    detected_lang = "en"
+    translated = False
+
     access_token = request.access_token
+    user_id = None
     if access_token:
+        uid = jwt_claim(access_token, "user_id")
+        user_id = int(uid) if uid and str(uid).isdigit() else None
+
         # Only validate when token is actually supplied
         translation_allowed = await is_translation_allowed(access_token, bool(request.dev))
     else:
         translation_allowed = False
+
+    # logger.info("user_id=%s", user_id)
 
     filters = {
         "topics": request.topics,
@@ -118,6 +160,7 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
         if detected_lang != "en" and detected_lang.upper() in DEEPL_SUPPORTED_LANGUAGES:
             try:
                 query = translate_text_with_backoff(query, target_language="EN")
+                translated = True
                 logger.info(
                     f"Translated query to English "
                     f"(detected: {detected_lang}): {query}"
@@ -268,6 +311,60 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     }
 
     logger.info(f"Search Query: '{query}', Semantic: {use_semantic}, Index: {index_name}, Page: {page_number}")
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    # IP + headers (Traefik/proxies)
+    xff = request_temp.headers.get("x-forwarded-for", "")
+    ip = (xff.split(",")[0].strip() if xff else (request_temp.client.host if request_temp.client else ""))
+
+    user_agent = request_temp.headers.get("user-agent", "")
+    accept_language = request_temp.headers.get("accept-language", "")
+    referer = request_temp.headers.get("referer", "")
+
+    request_id = request_temp.headers.get("x-request-id") or request_temp.headers.get("x-correlation-id")
+
+    MAX_LOG_RESULTS = 10
+    result_orig_ids = [
+        item.get("_id")
+        for item in formatted_results
+        if item.get("_id")
+    ][:MAX_LOG_RESULTS]
+
+    logger.info("Logging %d result_orig_ids; first=%s",
+                len(result_orig_ids), result_orig_ids[0] if result_orig_ids else None)
+
+    event = build_search_event(
+        endpoint="/neural_search_relevant",
+        original_query=original_query,
+        final_query=query,
+        ip=ip,
+        user_agent=user_agent,
+        accept_language=accept_language,
+        referer=referer,
+        user_id=user_id,
+        result_orig_ids=result_orig_ids,
+        page=page_number,
+        k=(request.k if (getattr(request, "k", None) is not None) else None),
+        model_key=model_key,
+        index_name=index_name,
+        use_semantic=use_semantic,
+        translation_allowed=translation_allowed,
+        detected_lang=detected_lang,
+        translated=translated,
+        filters=filters,
+        status_code=200,
+        latency_ms=latency_ms,
+        results_count=len(formatted_results),
+        total_records=response_json.get("pagination", {}).get("total_records"),
+        request_id=request_id,
+    )
+
+    # Never break search if analytics logging fails
+    try:
+        ch_logger.log_event(event)
+    except Exception as e:
+        logger.warning("ClickHouse logging failed: %s", e)
 
     return response_json
 
@@ -625,3 +722,7 @@ async def hybrid_search_endpoint(request: RelevantSearchRequest):
             "prev_page": result["page"] - 1 if result["page"] > 1 else None
         }
     }
+
+@app.get("/_debug/clickhouse")
+async def debug_clickhouse():
+    return ch_logger.stats()

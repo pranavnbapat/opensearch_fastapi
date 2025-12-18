@@ -55,6 +55,8 @@ def translate_text_with_backoff(text, target_language, max_retries=3):
     if not text or not isinstance(text, str):
         return text
 
+    translated = True
+
     # Handle language aliases
     if target_language.upper() == "EN":
         target_language = "EN-GB"

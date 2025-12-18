@@ -8,6 +8,14 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      CLICKHOUSE_URL: "http://euf_search_clickhouse:8123"
+      CLICKHOUSE_DB: "euf_search_analytics"
+      CLICKHOUSE_USER: "eager_beaver"
+      CLICKHOUSE_PASSWORD: "vF7rkCE7MX5rn5RhUBSg2CWqr"
+      CLICKHOUSE_FLUSH_INTERVAL_S: "1.0"
+      CLICKHOUSE_BATCH_SIZE: "200"
+      CLICKHOUSE_QUEUE_MAXSIZE: "10000"
     ports:
       - "10000:10000"
     volumes:
