@@ -119,7 +119,9 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     else:
         translation_allowed = False
 
-    # logger.info("user_id=%s", user_id)
+    # summary only when caller is authenticated AND token passes your validation
+    include_summary = bool(getattr(request, "include_summary", False)) and bool(access_token) and bool(
+        translation_allowed) and (user_id is not None)
 
     filters = {
         "topics": request.topics,
@@ -307,9 +309,8 @@ async def neural_search_relevant_endpoint(request_temp: Request, request: Releva
     ]
 
     summary = None
-    if bool(getattr(request, "include_summary", False)):
-        logger.info("include_summary=%s, formatted_results=%d",
-                    bool(getattr(request, "include_summary", False)), len(formatted_results))
+    if include_summary:
+        logger.info("Summary enabled (user_id=%s, results=%d)", user_id, len(formatted_results))
         if SUMMARY_PROVIDER == "hf":
             summary = await summarise_top5_hf(query=query, hits=formatted_results)
         else:
