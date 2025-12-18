@@ -1,7 +1,9 @@
 # services/summariser_hf.py
 
-import os
 import asyncio
+import os
+import re
+
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -20,13 +22,38 @@ def _clip(text: Optional[str], limit: int) -> str:
     text = (text or "").strip()
     return text if len(text) <= limit else text[:limit] + "…"
 
+def _tokens(s: str) -> set[str]:
+    # Simple, fast tokeniser; good enough for gating.
+    return set(re.findall(r"[a-z0-9]+", (s or "").lower()))
+
+def _hit_relevance_score(query: str, h: Dict[str, Any]) -> int:
+    q = _tokens(query)
+    text = " ".join([
+        h.get("title") or "",
+        h.get("subtitle") or "",
+        h.get("description") or "",
+        " ".join(h.get("keywords") or []),
+        " ".join(h.get("topics") or []),
+        " ".join(h.get("themes") or []),
+    ])
+    t = _tokens(text)
+
+    # Score = token overlap count (simple + surprisingly effective)
+    return len(q & t)
+
 def build_prompt(query: str, hits: List[Dict[str, Any]]) -> str:
     lines = [
         f"Query: {query}",
-        "Write ONE neutral summary of the results in 100–200 words.",
-        "Use only information below. Do not invent details.",
         "",
-        "Top results:"
+        "Task: Write ONE neutral summary (150–200 words) about the QUERY TOPIC using only the evidence below.",
+        "",
+        "Hard rules:",
+        "- Do NOT mention the number of results.",
+        "- Do NOT mention that some results are irrelevant or unrelated.",
+        "- Do NOT describe the set of documents (no meta commentary).",
+        "- If the evidence is insufficient to summarise the topic, output exactly: null",
+        "",
+        "Evidence (snippets):"
     ]
     for i, h in enumerate(hits[:5], start=1):
         lines.append(
@@ -42,7 +69,19 @@ async def summarise_top5_hf(query: str, hits: List[Dict[str, Any]]) -> Optional[
     if not HF_TOKEN:
         return None
 
-    prompt = build_prompt(query, hits)
+    # Keep only hits that have *some* overlap with the query.
+    scored = sorted(
+        ((h, _hit_relevance_score(query, h)) for h in hits),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    filtered = [h for (h, s) in scored if s > 0][:5]
+
+    # If nothing looks relevant, don't fabricate a topic summary.
+    if not filtered:
+        return None
+
+    prompt = build_prompt(query, filtered)
 
     url = f"{HF_BASE_URL}/chat/completions"
     headers = {

@@ -6,8 +6,11 @@ import time
 
 from contextlib import asynccontextmanager
 from datetime import datetime
+
 from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
+
+import services.summariser as summariser_ollama
 
 #from models.embedding import select_model, generate_vector, generate_vector_neural_search
 from services.clickhouse_logger import make_default_clickhouse_logger, build_search_event
@@ -25,6 +28,7 @@ from services.utils import (PAGE_SIZE, BASIC_AUTH_PASS, BASIC_AUTH_USER, MODEL_C
                             format_results_neural_search, fetch_chunks_for_parents, translate_query_to_english,
                             is_translation_allowed, jwt_claim)
 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,7 @@ async def lifespan(app: FastAPI):
     finally:
         # Flush remaining events and close http client
         await ch_logger.stop()
+        await summariser_ollama.aclose()
 
 
 ALLOWED_USERS = {
